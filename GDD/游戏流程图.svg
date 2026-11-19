@@ -42,7 +42,7 @@
 
   <rect class="node-focal" x="262" y="66" width="156" height="72" rx="36" />
   <text class="t-l1" x="340" y="94" text-anchor="middle" dominant-baseline="central">Gameplay</text>
-  <text class="t-l4" x="340" y="114" text-anchor="middle" dominant-baseline="central">12×12 核心对局</text>
+  <text class="t-l4" x="340" y="114" text-anchor="middle" dominant-baseline="central">16×16 核心对局</text>
 
   <line class="edge-arrow" x1="426" y1="102" x2="496" y2="102" />
 

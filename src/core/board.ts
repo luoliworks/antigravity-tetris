@@ -1,4 +1,4 @@
-import { BOARD_SIZE, CENTER_MAX, CENTER_MIN } from './constants';
+import { BOARD_SIZE, CENTER_MAX, CENTER_MIN, RING_COUNT, RING_INDICES } from './constants';
 import { getPieceCells } from './pieces';
 import type {
   ActivePiece,
@@ -6,6 +6,8 @@ import type {
   CellData,
   CellMovement,
   ClearedCell,
+  ClearedLineCell,
+  FullLines,
   GridPos,
   PieceKind,
   RingIndex,
@@ -39,7 +41,7 @@ export function getRingIndex(r: number, c: number): RingIndex | null {
     return null;
   }
   const depth = getDepth(r, c);
-  return depth < 4 ? ((depth + 1) as RingIndex) : null;
+  return depth < RING_COUNT ? ((depth + 1) as RingIndex) : null;
 }
 
 export function getRingCells(ring: RingIndex): GridPos[] {
@@ -69,7 +71,7 @@ export function isRingFull(board: BoardGrid, ring: RingIndex): boolean {
 
 export function findFullRings(board: BoardGrid): RingIndex[] {
   const full: RingIndex[] = [];
-  for (const ring of [1, 2, 3, 4] as const) {
+  for (const ring of RING_INDICES) {
     if (isRingFull(board, ring)) {
       full.push(ring);
     }
@@ -183,6 +185,140 @@ export function clearRingsAndExpand(
   };
 }
 
+export function findFullLines(board: BoardGrid): FullLines {
+  const northRows: number[] = [];
+  const southRows: number[] = [];
+  const westCols: number[] = [];
+  const eastCols: number[] = [];
+
+  for (let r = 0; r < CENTER_MIN; r++) {
+    let full = true;
+    for (let c = 0; c < BOARD_SIZE; c++) {
+      if (board[r][c] === null) {
+        full = false;
+        break;
+      }
+    }
+    if (full) northRows.push(r);
+  }
+
+  for (let r = CENTER_MAX + 1; r < BOARD_SIZE; r++) {
+    let full = true;
+    for (let c = 0; c < BOARD_SIZE; c++) {
+      if (board[r][c] === null) {
+        full = false;
+        break;
+      }
+    }
+    if (full) southRows.push(r);
+  }
+
+  for (let c = 0; c < CENTER_MIN; c++) {
+    let full = true;
+    for (let r = 0; r < BOARD_SIZE; r++) {
+      if (board[r][c] === null) {
+        full = false;
+        break;
+      }
+    }
+    if (full) westCols.push(c);
+  }
+
+  for (let c = CENTER_MAX + 1; c < BOARD_SIZE; c++) {
+    let full = true;
+    for (let r = 0; r < BOARD_SIZE; r++) {
+      if (board[r][c] === null) {
+        full = false;
+        break;
+      }
+    }
+    if (full) eastCols.push(c);
+  }
+
+  return { northRows, southRows, westCols, eastCols };
+}
+
+export function countFullLines(lines: FullLines): number {
+  return (
+    lines.northRows.length +
+    lines.southRows.length +
+    lines.westCols.length +
+    lines.eastCols.length
+  );
+}
+
+export interface LineClearResult {
+  nextBoard: BoardGrid;
+  clearedCells: ClearedLineCell[];
+  movements: CellMovement[];
+  isAllClear: boolean;
+}
+
+export function clearLinesAndCollapse(board: BoardGrid, lines: FullLines): LineClearResult {
+  const mid = BOARD_SIZE / 2;
+  const clearedRowSet = new Set<number>([...lines.northRows, ...lines.southRows]);
+  const clearedColSet = new Set<number>([...lines.westCols, ...lines.eastCols]);
+
+  const nextBoard = createEmptyBoard();
+  const clearedCells: ClearedLineCell[] = [];
+  const movements: CellMovement[] = [];
+  let remainingCount = 0;
+
+  for (let r = 0; r < BOARD_SIZE; r++) {
+    for (let c = 0; c < BOARD_SIZE; c++) {
+      const cell = board[r][c];
+      if (!cell) {
+        continue;
+      }
+      if (clearedRowSet.has(r) || clearedColSet.has(c)) {
+        clearedCells.push({ pos: { r, c }, cell: { ...cell } });
+        continue;
+      }
+
+      let newR = r;
+      if (r < mid) {
+        for (const cr of lines.northRows) {
+          if (cr < r) newR--;
+        }
+      } else {
+        for (const cr of lines.southRows) {
+          if (cr > r) newR++;
+        }
+      }
+
+      let newC = c;
+      if (c < mid) {
+        for (const cc of lines.westCols) {
+          if (cc < c) newC--;
+        }
+      } else {
+        for (const cc of lines.eastCols) {
+          if (cc > c) newC++;
+        }
+      }
+
+      const copiedCell: CellData = { ...cell };
+      nextBoard[newR][newC] = copiedCell;
+      remainingCount++;
+
+      if (newR !== r || newC !== c) {
+        movements.push({
+          cell: copiedCell,
+          from: { r, c },
+          to: { r: newR, c: newC },
+        });
+      }
+    }
+  }
+
+  return {
+    nextBoard,
+    clearedCells,
+    movements,
+    isAllClear: remainingCount === 0,
+  };
+}
+
 export function canPlacePiece(
   board: BoardGrid,
   kind: PieceKind,
@@ -252,8 +388,8 @@ export function hasCenterIntrusion(board: BoardGrid): boolean {
 }
 
 export function isDangerState(board: BoardGrid): boolean {
-  for (let r = 3; r <= 8; r++) {
-    for (let c = 3; c <= 8; c++) {
+  for (let r = CENTER_MIN - 1; r <= CENTER_MAX + 1; r++) {
+    for (let c = CENTER_MIN - 1; c <= CENTER_MAX + 1; c++) {
       if (board[r][c] !== null) {
         return true;
       }

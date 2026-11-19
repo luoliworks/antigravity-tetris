@@ -32,7 +32,7 @@ export type PieceKind =
 
 export type StarCoreKind = 'NOVA_BOMB' | 'STARDUST_PIERCER';
 
-export type RingIndex = 1 | 2 | 3 | 4;
+export type RingIndex = 1 | 2 | 3 | 4 | 5 | 6;
 
 export type SlideBias = 'vertical' | 'horizontal' | null;
 
@@ -69,6 +69,18 @@ export interface ClearedCell {
   pos: GridPos;
   ring: RingIndex;
   cell: CellData;
+}
+
+export interface ClearedLineCell {
+  pos: GridPos;
+  cell: CellData;
+}
+
+export interface FullLines {
+  northRows: number[];
+  southRows: number[];
+  westCols: number[];
+  eastCols: number[];
 }
 
 export interface GhostPlacement {
@@ -126,6 +138,22 @@ export type GameEvent =
       leveledUp: boolean;
     }
   | {
+      type: 'LINES_CLEARED';
+      rows: number[];
+      cols: number[];
+      lineCount: number;
+      isCrossClear: boolean;
+      clearedCells: ClearedLineCell[];
+      movements: CellMovement[];
+      isAllClear: boolean;
+      scoreDelta: number;
+      chargeDelta: number;
+      flowCombo: number;
+      flowMultiplier: number;
+      newLevel: number;
+      leveledUp: boolean;
+    }
+  | {
       type: 'HOLD_SWAPPED';
       heldPiece: PieceKind;
       activePiece: ActivePiece;
@@ -142,6 +170,7 @@ export type GameEvent =
       type: 'GAME_OVER';
       score: number;
       level: number;
+      linesCleared: number;
       ringsCleared: number;
       maxFlowCombo: number;
       quickRate: number;
@@ -158,6 +187,7 @@ export interface GameStateSnapshot {
   consecutiveHolds: number;
   score: number;
   level: number;
+  linesCleared: number;
   ringsCleared: number;
   charge: number;
   flowCombo: number;

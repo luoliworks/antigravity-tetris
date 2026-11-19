@@ -1,10 +1,13 @@
 import { PieceBag } from './bag';
 import {
   canPlacePiece,
+  clearLinesAndCollapse,
   clearRingsAndExpand,
   cloneBoard,
+  countFullLines,
   createEmptyBoard,
   detonateNovaBomb,
+  findFullLines,
   findFullRings,
   hasCenterIntrusion,
   isDangerState,
@@ -14,7 +17,7 @@ import {
 import {
   ALL_CLEAR_BONUS_BASE,
   ALL_CLEAR_CHARGE,
-  calculateLevel,
+  calculateLevelFromClears,
   DIRECTIONS_8,
   FLOW_MULTIPLIERS,
   FLOW_WINDOW_PIECES,
@@ -22,6 +25,8 @@ import {
   getQuickWindowMs,
   HARD_DROP_SCORE_PER_STEP,
   INTRO_DURATION_MS,
+  LINE_CLEAR_BASE_SCORES,
+  LINE_CLEAR_CHARGE,
   LOCK_DELAY_MS,
   OUTER_RING_BONUS_MULTIPLIER,
   QUICK_BASE_SCORE,
@@ -77,6 +82,7 @@ export class GameEngine {
 
   private score = 0;
   private level = 1;
+  private linesCleared = 0;
   private ringsCleared = 0;
   private charge = 0;
   private flowCombo = 0;
@@ -144,6 +150,7 @@ export class GameEngine {
       consecutiveHolds: this.consecutiveHolds,
       score: this.score,
       level: this.level,
+      linesCleared: this.linesCleared,
       ringsCleared: this.ringsCleared,
       charge: this.charge,
       flowCombo: this.flowCombo,
@@ -591,8 +598,8 @@ export class GameEngine {
       const clearResult = clearRingsAndExpand(this.board, fullRings);
       this.board = clearResult.nextBoard;
 
-      const withinWindow =
-        this.ringsCleared > 0 && this.piecesSinceLastClear <= FLOW_WINDOW_PIECES;
+      const hadPriorClear = this.ringsCleared > 0 || this.linesCleared > 0;
+      const withinWindow = hadPriorClear && this.piecesSinceLastClear <= FLOW_WINDOW_PIECES;
       this.flowCombo = withinWindow ? Math.min(FLOW_MULTIPLIERS.length - 1, this.flowCombo + 1) : 0;
       if (this.flowCombo > this.maxFlowCombo) {
         this.maxFlowCombo = this.flowCombo;
@@ -600,7 +607,7 @@ export class GameEngine {
       this.piecesSinceLastClear = 0;
 
       const scoringLevel = this.level;
-      const count = fullRings.length as 1 | 2 | 3 | 4;
+      const count = Math.min(4, fullRings.length) as 1 | 2 | 3 | 4;
       let ringBase = RING_CLEAR_BASE_SCORES[count] * scoringLevel;
       if (count === 1 && fullRings[0] === 1) {
         ringBase = Math.round(ringBase * OUTER_RING_BONUS_MULTIPLIER);
@@ -617,7 +624,7 @@ export class GameEngine {
       const chargeDelta = this.charge - prevCharge;
 
       this.ringsCleared += fullRings.length;
-      const newLevel = calculateLevel(this.ringsCleared);
+      const newLevel = calculateLevelFromClears(this.linesCleared, this.ringsCleared);
       const leveledUp = newLevel > this.level;
       this.level = newLevel;
 
@@ -634,7 +641,65 @@ export class GameEngine {
         newLevel,
         leveledUp,
       });
-    } else if (this.piecesSinceLastClear > FLOW_WINDOW_PIECES) {
+    }
+
+    const fullLines = findFullLines(this.board);
+    const lineCount = countFullLines(fullLines);
+    if (lineCount > 0) {
+      const lineRes = clearLinesAndCollapse(this.board, fullLines);
+      this.board = lineRes.nextBoard;
+
+      if (fullRings.length === 0) {
+        const hadPriorClear = this.ringsCleared > 0 || this.linesCleared > 0;
+        const withinWindow = hadPriorClear && this.piecesSinceLastClear <= FLOW_WINDOW_PIECES;
+        this.flowCombo = withinWindow ? Math.min(FLOW_MULTIPLIERS.length - 1, this.flowCombo + 1) : 0;
+        if (this.flowCombo > this.maxFlowCombo) {
+          this.maxFlowCombo = this.flowCombo;
+        }
+        this.piecesSinceLastClear = 0;
+      }
+
+      const scoringLevel = this.level;
+      const clampedCount = Math.min(4, lineCount) as 1 | 2 | 3 | 4;
+      const lineBase = LINE_CLEAR_BASE_SCORES[clampedCount] * scoringLevel;
+      const allClearBonus = lineRes.isAllClear ? ALL_CLEAR_BONUS_BASE * scoringLevel : 0;
+      const flowMultiplier = FLOW_MULTIPLIERS[this.flowCombo];
+      const scoreDelta = Math.round((lineBase + allClearBonus) * flowMultiplier);
+      this.score += scoreDelta;
+
+      const rawCharge =
+        LINE_CLEAR_CHARGE[clampedCount] + (lineRes.isAllClear ? ALL_CLEAR_CHARGE : 0);
+      const prevCharge = this.charge;
+      this.charge = Math.min(100, this.charge + rawCharge);
+      const chargeDelta = this.charge - prevCharge;
+
+      this.linesCleared += lineCount;
+      const newLevel = calculateLevelFromClears(this.linesCleared, this.ringsCleared);
+      const leveledUp = newLevel > this.level;
+      this.level = newLevel;
+
+      const rows = [...fullLines.northRows, ...fullLines.southRows];
+      const cols = [...fullLines.westCols, ...fullLines.eastCols];
+
+      this.emit({
+        type: 'LINES_CLEARED',
+        rows,
+        cols,
+        lineCount,
+        isCrossClear: rows.length > 0 && cols.length > 0,
+        clearedCells: lineRes.clearedCells,
+        movements: lineRes.movements,
+        isAllClear: lineRes.isAllClear,
+        scoreDelta,
+        chargeDelta,
+        flowCombo: this.flowCombo,
+        flowMultiplier,
+        newLevel,
+        leveledUp,
+      });
+    }
+
+    if (fullRings.length === 0 && lineCount === 0 && this.piecesSinceLastClear > FLOW_WINDOW_PIECES) {
       this.flowCombo = 0;
     }
 
@@ -691,6 +756,7 @@ export class GameEngine {
       type: 'GAME_OVER',
       score: this.score,
       level: this.level,
+      linesCleared: this.linesCleared,
       ringsCleared: this.ringsCleared,
       maxFlowCombo: this.maxFlowCombo,
       quickRate: this.totalLaunches > 0 ? this.quickCount / this.totalLaunches : 0,

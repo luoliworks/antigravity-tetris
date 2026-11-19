@@ -1,16 +1,19 @@
 import type { CardinalDir, Direction8, DirVec, LevelConfig, PieceKind, RingIndex } from './types';
 
-export const BOARD_SIZE = 12;
-export const CENTER_MIN = 4;
-export const CENTER_MAX = 7;
+export const BOARD_SIZE = 16;
+export const CENTER_MIN = 6;
+export const CENTER_MAX = 9;
+export const RING_COUNT = 6;
 
-export const RING_INDICES: readonly RingIndex[] = [1, 2, 3, 4];
+export const RING_INDICES: readonly RingIndex[] = [1, 2, 3, 4, 5, 6];
 
 export const RING_CELL_COUNTS: Record<RingIndex, number> = {
-  1: 44,
-  2: 36,
-  3: 28,
-  4: 20,
+  1: 60,
+  2: 52,
+  3: 44,
+  4: 36,
+  5: 28,
+  6: 20,
 };
 
 export const DIRECTIONS_8: readonly Direction8[] = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
@@ -56,6 +59,20 @@ export const RING_CLEAR_CHARGE: Record<1 | 2 | 3 | 4, number> = {
   4: 100,
 };
 
+export const LINE_CLEAR_BASE_SCORES: Record<1 | 2 | 3 | 4, number> = {
+  1: 200,
+  2: 500,
+  3: 900,
+  4: 1600,
+};
+
+export const LINE_CLEAR_CHARGE: Record<1 | 2 | 3 | 4, number> = {
+  1: 10,
+  2: 25,
+  3: 45,
+  4: 70,
+};
+
 export const ALL_CLEAR_BONUS_BASE = 10000;
 export const ALL_CLEAR_CHARGE = 50;
 
@@ -75,28 +92,33 @@ export function getQuickWindowMs(hoverMs: number): number {
   return Math.min(500, Math.max(300, Math.round(hoverMs * 0.25)));
 }
 
-export function calculateLevel(ringsCleared: number): number {
-  const safeRings = Math.max(0, Math.floor(ringsCleared));
-  if (safeRings < 8) {
-    return 1 + Math.floor(safeRings / 2);
+export function calculateLevelFromClears(linesCleared: number, ringsCleared: number): number {
+  const pts =
+    Math.max(0, Math.floor(linesCleared)) + Math.max(0, Math.floor(ringsCleared)) * 3;
+  if (pts < 24) {
+    return 1 + Math.floor(pts / 6);
   }
-  return 5 + Math.floor((safeRings - 8) / 3);
+  return 5 + Math.floor((pts - 24) / 9);
+}
+
+export function calculateLevel(ringsCleared: number): number {
+  return calculateLevelFromClears(0, ringsCleared);
 }
 
 export function getLevelConfig(level: number): LevelConfig {
   const safeLevel = Math.max(1, Math.floor(level));
   if (safeLevel <= 2) {
-    return { hoverMs: 2000, stepMs: 240, lubricantRatio: 0.25 };
+    return { hoverMs: 3500, stepMs: 460, lubricantRatio: 0.25 };
   }
   if (safeLevel <= 5) {
-    return { hoverMs: 1500, stepMs: 175, lubricantRatio: 0.20 };
+    return { hoverMs: 2600, stepMs: 340, lubricantRatio: 0.20 };
   }
   if (safeLevel <= 8) {
-    return { hoverMs: 1100, stepMs: 125, lubricantRatio: 0.15 };
+    return { hoverMs: 1800, stepMs: 240, lubricantRatio: 0.15 };
   }
   return {
-    hoverMs: 800,
-    stepMs: Math.max(70, 95 - (safeLevel - 9) * 5),
+    hoverMs: 1200,
+    stepMs: Math.max(110, 180 - (safeLevel - 9) * 10),
     lubricantRatio: 0.10,
   };
 }

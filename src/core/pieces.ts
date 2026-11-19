@@ -1,4 +1,4 @@
-import { BOARD_SIZE } from './constants';
+import { BOARD_SIZE, CENTER_MIN } from './constants';
 import type {
   ActivePiece,
   BoardGrid,
@@ -352,23 +352,23 @@ export function getSpawnOrigin(kind: PieceKind, aimDir?: Direction8 | null): Gri
     switch (aimDir) {
       case 'NE':
       case 'E':
-        return { r: 5, c: 6 };
+        return { r: CENTER_MIN + 1, c: CENTER_MIN + 2 };
       case 'SW':
-        return { r: 6, c: 5 };
+        return { r: CENTER_MIN + 2, c: CENTER_MIN + 1 };
       case 'SE':
       case 'S':
-        return { r: 6, c: 6 };
+        return { r: CENTER_MIN + 2, c: CENTER_MIN + 2 };
       case 'NW':
       case 'N':
       case 'W':
       default:
-        return { r: 5, c: 5 };
+        return { r: CENTER_MIN + 1, c: CENTER_MIN + 1 };
     }
   }
   if (kind === 'O' || kind === 'L3' || kind === 'D2') {
-    return { r: 5, c: 5 };
+    return { r: CENTER_MIN + 1, c: CENTER_MIN + 1 };
   }
-  return { r: 4, c: 4 };
+  return { r: CENTER_MIN, c: CENTER_MIN };
 }
 
 function getKickOffsets(
