@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { audioEngine } from '../audio';
 
 export interface GlassButtonOptions {
   x: number;
@@ -61,6 +62,8 @@ export function createGlassButton(
   zone.on('pointerout', () => drawBg(false));
   zone.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
     if (pointer.button === 0) {
+      audioEngine.unlock();
+      audioEngine.playUiClick();
       onClick();
     }
   });

@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { audioEngine } from '../audio';
 import type { Difficulty } from '../core';
 import { t, toggleLanguage } from '../i18n/i18n';
 import { CANVAS_HEIGHT, CANVAS_WIDTH } from '../render/layout';
@@ -50,6 +51,13 @@ export class TitleScene extends Phaser.Scene {
 
   create(): void {
     this.rotatingRings.length = 0;
+    audioEngine.setPaused(false);
+    audioEngine.setDanger(false);
+    audioEngine.setBgmMode('title');
+    this.input.on('pointerdown', () => {
+      audioEngine.unlock();
+      audioEngine.setBgmMode('title');
+    });
     this.drawBackdropAndRings();
 
     // Top-right utility pills
@@ -404,9 +412,13 @@ export class TitleScene extends Phaser.Scene {
   private onKeyDown(e: KeyboardEvent): void {
     if (e.repeat) return;
 
+    audioEngine.unlock();
+    audioEngine.setBgmMode('title');
+
     if (this.hasModalOpen()) {
       if (e.code === 'Escape') {
         e.preventDefault();
+        audioEngine.playUiClick();
         this.controlsModal.close();
         this.highScoresModal.close();
       }
@@ -417,6 +429,7 @@ export class TitleScene extends Phaser.Scene {
       e.preventDefault();
       this.selectedDifficulty = 'easy';
       this.redrawCardHighlights();
+      audioEngine.playAimTick();
       return;
     }
 
@@ -424,6 +437,7 @@ export class TitleScene extends Phaser.Scene {
       e.preventDefault();
       this.selectedDifficulty = 'hard';
       this.redrawCardHighlights();
+      audioEngine.playAimTick();
       return;
     }
 
@@ -434,6 +448,10 @@ export class TitleScene extends Phaser.Scene {
   }
 
   private startGame(difficulty: Difficulty): void {
+    audioEngine.unlock();
+    audioEngine.playStarCoreActivate(
+      difficulty === 'easy' ? 'NOVA_BOMB' : 'STARDUST_PIERCER',
+    );
     this.scene.start('GameScene', { difficulty });
   }
 

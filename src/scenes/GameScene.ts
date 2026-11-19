@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { audioEngine } from '../audio';
 import { GameEngine, getPieceCells } from '../core';
 import type { Difficulty, GameEvent, GridPos } from '../core';
 import { getLanguage, t, toggleLanguage } from '../i18n/i18n';
@@ -42,6 +43,12 @@ export class GameScene extends Phaser.Scene {
   private gameOverModalShown = false;
   private pendingGameOverResult: HighScoreRecordResult | null = null;
 
+  private hitstopRemainingMs = 0;
+  private lastHoverUrgentStage = 0;
+  private lastIntroCount = 0;
+  private lastResumeCount = 0;
+  private lastPiercerLaunchOrigin: GridPos = { r: 7, c: 7 };
+
   private unsubPrefs: (() => void) | null = null;
   private handleOverlayKeyBound: ((e: KeyboardEvent) => void) | null = null;
 
@@ -65,6 +72,17 @@ export class GameScene extends Phaser.Scene {
     this.pendingGameOverResult = null;
     this.currentFlightIsQuick = false;
     this.lastQuickTrailCells = [];
+    this.hitstopRemainingMs = 0;
+    this.lastHoverUrgentStage = 0;
+    this.lastIntroCount = 0;
+    this.lastResumeCount = 0;
+    this.lastPiercerLaunchOrigin = { r: 7, c: 7 };
+
+    audioEngine.unlock();
+    audioEngine.setPaused(false);
+    audioEngine.setDanger(false);
+    audioEngine.setBgmMode('gameplay');
+    this.input.on('pointerdown', () => audioEngine.unlock());
 
     this.engine = new GameEngine({ difficulty: this.difficulty });
     this.boardRenderer = new BoardRenderer(this);
@@ -192,6 +210,16 @@ export class GameScene extends Phaser.Scene {
         this.boardRenderer.renderResumeCountdown(this.resumeCountdownMs, RESUME_COUNTDOWN_MS);
         if (this.resumeCountdownMs <= 0) {
           this.unpauseImmediate();
+          audioEngine.playCountdownTick(true);
+        } else {
+          const count = Math.min(
+            3,
+            Math.max(1, Math.ceil(this.resumeCountdownMs / (RESUME_COUNTDOWN_MS / 3))),
+          );
+          if (count !== this.lastResumeCount) {
+            this.lastResumeCount = count;
+            audioEngine.playCountdownTick(false);
+          }
         }
       }
       const state = this.engine.getState();
@@ -202,13 +230,37 @@ export class GameScene extends Phaser.Scene {
     }
 
     const preState = this.engine.getState();
-    if (preState.phase !== 'GAME_OVER' && !this.controlsModal.isOpen()) {
+    if (this.hitstopRemainingMs > 0) {
+      this.hitstopRemainingMs = Math.max(0, this.hitstopRemainingMs - dtMs);
+    } else if (preState.phase !== 'GAME_OVER' && !this.controlsModal.isOpen()) {
       this.inputManager.update(dtMs);
       this.engine.tick(dtMs);
       this.handleEvents(this.engine.drainEvents());
     }
 
     const state = this.engine.getState();
+    if (!this.controlsModal.isOpen()) {
+      if (state.phase === 'INTRO') {
+        const remaining = Math.max(0, state.introDurationMs - state.introElapsedMs);
+        if (remaining > 0) {
+          const count = Math.min(3, Math.max(1, Math.ceil(remaining / 300)));
+          if (count !== this.lastIntroCount) {
+            this.lastIntroCount = count;
+            audioEngine.playCountdownTick(false);
+          }
+        }
+      } else if (state.phase === 'HOVER') {
+        const remainingMs = Math.max(0, state.hoverDurationMs - state.hoverElapsedMs);
+        if (remainingMs <= 200 && this.lastHoverUrgentStage < 2) {
+          this.lastHoverUrgentStage = 2;
+          audioEngine.playHoverUrgent(1);
+        } else if (remainingMs <= 400 && this.lastHoverUrgentStage < 1) {
+          this.lastHoverUrgentStage = 1;
+          audioEngine.playHoverUrgent(0);
+        }
+      }
+    }
+
     this.aiChanController.tick(dtMs, {
       activePlay:
         state.phase !== 'INTRO' &&
@@ -279,8 +331,10 @@ export class GameScene extends Phaser.Scene {
     if (!this.paused) {
       this.paused = true;
       this.resumeCountdownMs = 0;
+      this.lastResumeCount = 0;
       this.inputManager.resetFlightHolds();
       this.boardRenderer.setPausedBlur(true);
+      audioEngine.setPaused(true);
       this.pauseOverlay.open();
       return;
     }
@@ -293,6 +347,7 @@ export class GameScene extends Phaser.Scene {
     if (!this.paused) return;
     this.pauseOverlay.close();
     this.controlsModal.close();
+    this.lastResumeCount = 0;
     this.resumeCountdownMs = RESUME_COUNTDOWN_MS;
     this.boardRenderer.renderResumeCountdown(this.resumeCountdownMs, RESUME_COUNTDOWN_MS);
   }
@@ -300,14 +355,17 @@ export class GameScene extends Phaser.Scene {
   private unpauseImmediate(): void {
     this.paused = false;
     this.resumeCountdownMs = 0;
+    this.lastResumeCount = 0;
     this.pauseOverlay.close();
     this.controlsModal.close();
     this.boardRenderer.hideResumeCountdown();
     this.boardRenderer.setPausedBlur(false);
+    audioEngine.setPaused(false);
   }
 
   private onOverlayKeyDown(e: KeyboardEvent): void {
     if (e.repeat) return;
+    audioEngine.unlock();
 
     if (this.paused && !this.controlsModal.isOpen() && e.code === 'KeyR') {
       e.preventDefault();
@@ -337,6 +395,15 @@ export class GameScene extends Phaser.Scene {
     this.gameOverOverloadMs = 0;
     this.gameOverModalShown = false;
     this.pendingGameOverResult = null;
+    this.hitstopRemainingMs = 0;
+    this.lastHoverUrgentStage = 0;
+    this.lastIntroCount = 0;
+    this.lastResumeCount = 0;
+    this.lastPiercerLaunchOrigin = { r: 7, c: 7 };
+
+    audioEngine.setPaused(false);
+    audioEngine.setDanger(false);
+    audioEngine.setBgmMode('gameplay');
 
     this.engine = new GameEngine({ difficulty: this.difficulty });
     this.inputManager.resetFlightHolds();
@@ -357,6 +424,12 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private triggerHitstop(ms: number): void {
+    if (ms > this.hitstopRemainingMs) {
+      this.hitstopRemainingMs = ms;
+    }
+  }
+
   private handleEvents(events: GameEvent[]): void {
     let hasRingClear = false;
     let hasLineClear = false;
@@ -372,21 +445,40 @@ export class GameScene extends Phaser.Scene {
 
     for (const ev of events) {
       switch (ev.type) {
+        case 'INTRO_COMPLETE':
+          audioEngine.playCountdownTick(true);
+          break;
+
         case 'PIECE_SPAWNED':
           this.inputManager.resetFlightHolds();
           this.currentFlightIsQuick = false;
           this.lastQuickTrailCells = [];
+          this.lastHoverUrgentStage = 0;
+          break;
+
+        case 'AIM_CHANGED':
+          audioEngine.playAimTick();
+          break;
+
+        case 'PIECE_ROTATED':
+          audioEngine.playRotate();
           break;
 
         case 'PIECE_LAUNCHED':
+          audioEngine.unlock();
+          audioEngine.playLaunch(ev.isQuick, ev.quickStreak, ev.blind);
           this.inputManager.resetFlightHolds();
           this.currentFlightIsQuick = ev.isQuick;
+          if (ev.piece.kind === 'STARDUST_PIERCER') {
+            this.lastPiercerLaunchOrigin = { ...ev.piece.origin };
+          }
           this.lastQuickTrailCells = getPieceCells(
             ev.piece.kind,
             ev.piece.rotation,
             ev.piece.origin,
           );
           if (ev.isQuick) {
+            this.boardRenderer.triggerQuickRecoil();
             this.boardRenderer.showCallout(
               ev.quickStreak >= 2 ? `${t('callout.quick')} x${ev.quickStreak}` : t('callout.quick'),
               '#facc15',
@@ -417,17 +509,25 @@ export class GameScene extends Phaser.Scene {
         case 'PIECE_LOCKED':
           this.currentFlightIsQuick = false;
           this.lastQuickTrailCells = [];
+          audioEngine.playLock(ev.hardDropSteps);
+          this.boardRenderer.triggerLandingBounce(ev.placed, ev.kind);
           if (ev.scoreDelta > 0) {
             this.hudRenderer.showScoreDelta(ev.scoreDelta, '#94a3b8');
           }
           if (ev.kind === 'STARDUST_PIERCER' && ev.placed.length > 0) {
+            audioEngine.playPiercerSnipe();
+            this.triggerHitstop(80);
+            this.boardRenderer.triggerShake(4, 180);
             this.boardRenderer.triggerRingFlash(ev.placed, 0xf0abfc);
+            this.boardRenderer.triggerPiercerImpact(this.lastPiercerLaunchOrigin, ev.placed[0].pos);
             this.boardRenderer.showCallout(t('callout.sniped'), '#f0abfc');
             hasPiercerLock = true;
           }
           break;
 
         case 'HOLD_SWAPPED':
+          this.lastHoverUrgentStage = 0;
+          audioEngine.playHold();
           if (ev.consecutiveHolds >= 2) {
             hasConsecutiveHold = true;
           }
@@ -439,9 +539,15 @@ export class GameScene extends Phaser.Scene {
           if (ev.isAllClear) hasAllClear = true;
           if (ev.rings.length >= 2) hasMultiClear = true;
 
-          const flashColor = ev.rings.length >= 2 ? 0xf0abfc : 0xe0f2fe;
-          this.boardRenderer.triggerRingFlash(ev.clearedCells, flashColor);
+          const isMulti = ev.rings.length >= 2 || ev.isAllClear;
+          this.boardRenderer.triggerPrismClear(ev.clearedCells, true, isMulti, ev.isAllClear);
           this.boardRenderer.triggerCellMovements(ev.movements);
+          this.boardRenderer.triggerShake(isMulti ? 6 : 2, isMulti ? 240 : 120);
+          this.triggerHitstop(isMulti ? 105 : 50);
+          audioEngine.playClear(ev.rings.length, ev.flowCombo, true, isMulti, ev.isAllClear);
+          if (ev.movements.length > 0) {
+            audioEngine.playCollapseClick(120);
+          }
           this.hudRenderer.showScoreDelta(ev.scoreDelta, '#f0abfc');
 
           if (ev.isAllClear) {
@@ -460,6 +566,7 @@ export class GameScene extends Phaser.Scene {
             this.boardRenderer.showCallout(label, color);
           }
           if (ev.leveledUp) {
+            audioEngine.playLevelUp();
             this.boardRenderer.showCallout(`${t('callout.levelUp')} ${ev.newLevel}`, '#67e8f9', 54);
           }
           break;
@@ -471,9 +578,15 @@ export class GameScene extends Phaser.Scene {
           if (ev.isAllClear) hasAllClear = true;
           if (ev.isCrossClear || ev.lineCount >= 2) hasMultiClear = true;
 
-          const flashColor = ev.lineCount >= 2 ? 0xfacc15 : 0x38bdf8;
-          this.boardRenderer.triggerRingFlash(ev.clearedCells, flashColor);
+          const isMulti = ev.isCrossClear || ev.lineCount >= 2 || ev.isAllClear;
+          this.boardRenderer.triggerPrismClear(ev.clearedCells, false, isMulti, ev.isAllClear);
           this.boardRenderer.triggerCellMovements(ev.movements);
+          this.boardRenderer.triggerShake(isMulti ? 6 : 2, isMulti ? 240 : 120);
+          this.triggerHitstop(isMulti ? 100 : 50);
+          audioEngine.playClear(ev.lineCount, ev.flowCombo, false, isMulti, ev.isAllClear);
+          if (ev.movements.length > 0) {
+            audioEngine.playCollapseClick(120);
+          }
           this.hudRenderer.showScoreDelta(ev.scoreDelta, '#38bdf8');
 
           if (ev.isAllClear) {
@@ -494,6 +607,7 @@ export class GameScene extends Phaser.Scene {
             this.boardRenderer.showCallout(label, color);
           }
           if (ev.leveledUp) {
+            audioEngine.playLevelUp();
             this.boardRenderer.showCallout(`${t('callout.levelUp')} ${ev.newLevel}`, '#67e8f9', 54);
           }
           break;
@@ -503,6 +617,9 @@ export class GameScene extends Phaser.Scene {
           this.currentFlightIsQuick = false;
           this.lastQuickTrailCells = [];
           hasNova = true;
+          audioEngine.playNovaBlast();
+          this.triggerHitstop(80);
+          this.boardRenderer.triggerShake(4, 180);
           this.boardRenderer.triggerNovaBlast(ev.center);
           if (ev.scoreDelta > 0) {
             this.hudRenderer.showScoreDelta(ev.scoreDelta, '#fda4af');
@@ -511,6 +628,8 @@ export class GameScene extends Phaser.Scene {
           break;
 
         case 'STAR_CORE_ACTIVATED':
+          this.lastHoverUrgentStage = 0;
+          audioEngine.playStarCoreActivate(ev.coreKind);
           this.boardRenderer.showCallout(
             ev.coreKind === 'NOVA_BOMB' ? t('callout.novaReady') : t('callout.piercerReady'),
             '#f0abfc',
@@ -518,6 +637,7 @@ export class GameScene extends Phaser.Scene {
           break;
 
         case 'DANGER_CHANGED':
+          audioEngine.setDanger(ev.inDanger);
           this.aiChanController.setDanger(ev.inDanger);
           if (ev.inDanger) {
             enteredDanger = true;
@@ -539,6 +659,10 @@ export class GameScene extends Phaser.Scene {
             maxFlowCombo: snap.maxFlowCombo,
             quickRate: snap.quickRate,
           });
+          audioEngine.setDanger(false);
+          audioEngine.setBgmMode('gameover');
+          audioEngine.playGameOver(this.pendingGameOverResult.isNewRecord);
+          this.boardRenderer.triggerShake(5, 260);
           this.aiChanController.trigger(
             this.pendingGameOverResult.isNewRecord ? 'game_over_record' : 'game_over_normal',
           );
@@ -576,6 +700,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private cleanup(): void {
+    audioEngine.setPaused(false);
+    audioEngine.setDanger(false);
     this.inputManager?.destroy();
     this.mascotRenderer?.destroy();
     if (this.handleOverlayKeyBound) {
