@@ -12,6 +12,8 @@ import {
 export interface InputCallbacks {
   getPhase(): GamePhase;
   getFlightDirection(): Direction8 | null;
+  isBlocked?: () => boolean;
+  onTogglePause?: () => void;
   onAim(dir: Direction8): void;
   onRotate(delta: 1 | -1): void;
   onLaunchOrHardDrop(): void;
@@ -169,6 +171,16 @@ export class InputManager {
       e.preventDefault();
     }
     if (e.repeat) {
+      return;
+    }
+
+    if (e.code === 'Escape' || e.code === 'KeyP') {
+      e.preventDefault();
+      this.callbacks.onTogglePause?.();
+      return;
+    }
+
+    if (this.callbacks.isBlocked?.()) {
       return;
     }
 
@@ -337,6 +349,10 @@ export class InputManager {
     this.lastPointerX = pointer.x;
     this.lastPointerY = pointer.y;
 
+    if (this.callbacks.isBlocked?.()) {
+      return;
+    }
+
     if (this.callbacks.getPhase() !== 'HOVER') {
       return;
     }
@@ -351,6 +367,9 @@ export class InputManager {
   }
 
   private onPointerDown(pointer: Phaser.Input.Pointer): void {
+    if (this.callbacks.isBlocked?.()) {
+      return;
+    }
     if (pointer.button === 0) {
       if (isPointInBoard(pointer.x, pointer.y)) {
         this.callbacks.onLaunchOrHardDrop();
@@ -372,7 +391,7 @@ export class InputManager {
     _deltaX: number,
     deltaY: number,
   ): void {
-    if (deltaY === 0) {
+    if (this.callbacks.isBlocked?.() || deltaY === 0) {
       return;
     }
     const now = performance.now();

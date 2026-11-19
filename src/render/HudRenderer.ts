@@ -6,12 +6,16 @@ import {
   getLocalPieceCells,
 } from '../core';
 import type { Difficulty, GameStateSnapshot, PieceKind } from '../core';
+import { t } from '../i18n/i18n';
+import { appStorage } from '../storage/storage';
 import { HUD_PANEL, MASCOT_PANEL } from './layout';
 import { drawCrystalCell } from './pieceColors';
 
 export interface HudCallbacks {
   onToggleDifficulty(): void;
-  onRestart(): void;
+  onToggleLanguage(): void;
+  onToggleMute(): void;
+  onPause(): void;
   onActivateStarCore(): void;
 }
 
@@ -22,8 +26,20 @@ export class HudRenderer {
   private readonly chargeBarGraphics: Phaser.GameObjects.Graphics;
   private readonly levelBarGraphics: Phaser.GameObjects.Graphics;
   private readonly modePillBg: Phaser.GameObjects.Graphics;
+  private readonly mutePillBg: Phaser.GameObjects.Graphics;
 
   private readonly modeText: Phaser.GameObjects.Text;
+  private readonly langText: Phaser.GameObjects.Text;
+  private readonly muteText: Phaser.GameObjects.Text;
+  private readonly pauseText: Phaser.GameObjects.Text;
+
+  private readonly scoreLabelText: Phaser.GameObjects.Text;
+  private readonly levelLabelText: Phaser.GameObjects.Text;
+  private readonly linesLabelText: Phaser.GameObjects.Text;
+  private readonly ringsLabelText: Phaser.GameObjects.Text;
+  private readonly nextLabelText: Phaser.GameObjects.Text;
+  private readonly holdLabelText: Phaser.GameObjects.Text;
+
   private readonly scoreValueText: Phaser.GameObjects.Text;
   private readonly levelValueText: Phaser.GameObjects.Text;
   private readonly levelProgressText: Phaser.GameObjects.Text;
@@ -35,6 +51,12 @@ export class HudRenderer {
   private readonly holdHintText: Phaser.GameObjects.Text;
   private readonly chargeLabelText: Phaser.GameObjects.Text;
   private readonly chargePctText: Phaser.GameObjects.Text;
+
+  private readonly controlsTitleText: Phaser.GameObjects.Text;
+  private readonly mascotSlotText: Phaser.GameObjects.Text;
+  private readonly quickTipText: Phaser.GameObjects.Text;
+  private readonly colTitleTexts: Phaser.GameObjects.Text[] = [];
+  private readonly colBodyTexts: Phaser.GameObjects.Text[] = [];
 
   private readonly scorePopupAnchor: { x: number; y: number };
   private readonly levelBarPos: { x: number; y: number; w: number; h: number };
@@ -59,62 +81,103 @@ export class HudRenderer {
     panelBg.lineStyle(1.5, 0x67e8f9, 0.45);
     panelBg.strokeRoundedRect(px, py, pw, ph, 20);
 
-    // Header
+    // Header Title
     scene.add.text(px + 28, py + 24, 'ANTIGRAVITY TETRIS', {
       fontFamily: 'system-ui, -apple-system, Segoe UI, sans-serif',
-      fontSize: '28px',
+      fontSize: '24px',
       fontStyle: 'bold',
       color: '#e0f2fe',
     });
 
-    // Difficulty Toggle Pill
-    const modeX = px + pw - 270;
-    const modeY = py + 20;
-    const modeW = 122;
-    const modeH = 38;
+    // Difficulty Pill
+    const modeX = px + pw - 372;
+    const pillY = py + 20;
+    const pillH = 36;
+    const modeW = 88;
     this.modePillBg = scene.add.graphics();
     this.modeText = scene.add
-      .text(modeX + modeW / 2, modeY + modeH / 2, 'EASY', {
+      .text(modeX + modeW / 2, pillY + pillH / 2, 'EASY', {
         fontFamily: 'ui-monospace, Consolas, monospace',
-        fontSize: '18px',
+        fontSize: '16px',
         fontStyle: 'bold',
         color: '#6ee7b7',
       })
       .setOrigin(0.5);
-
     const modeHit = scene.add
-      .zone(modeX + modeW / 2, modeY + modeH / 2, modeW, modeH)
+      .zone(modeX + modeW / 2, pillY + pillH / 2, modeW, pillH)
       .setInteractive({ useHandCursor: true });
-    modeHit.on('pointerdown', () => this.callbacks.onToggleDifficulty());
+    modeHit.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.button === 0) this.callbacks.onToggleDifficulty();
+    });
 
-    // Restart Pill
-    const rstX = px + pw - 134;
-    const rstY = py + 20;
-    const rstW = 106;
-    const rstH = 38;
-    const rstBg = scene.add.graphics();
-    rstBg.fillStyle(0x1e293b, 0.9);
-    rstBg.fillRoundedRect(rstX, rstY, rstW, rstH, 10);
-    rstBg.lineStyle(1.5, 0x94a3b8, 0.6);
-    rstBg.strokeRoundedRect(rstX, rstY, rstW, rstH, 10);
-
-    scene.add
-      .text(rstX + rstW / 2, rstY + rstH / 2, 'RESTART', {
+    // Language Pill
+    const langX = px + pw - 274;
+    const langW = 86;
+    const langBg = scene.add.graphics();
+    langBg.fillStyle(0x16203d, 0.9);
+    langBg.fillRoundedRect(langX, pillY, langW, pillH, 10);
+    langBg.lineStyle(1.5, 0x38bdf8, 0.65);
+    langBg.strokeRoundedRect(langX, pillY, langW, pillH, 10);
+    this.langText = scene.add
+      .text(langX + langW / 2, pillY + pillH / 2, '', {
         fontFamily: 'ui-monospace, Consolas, monospace',
-        fontSize: '16px',
+        fontSize: '14px',
+        fontStyle: 'bold',
+        color: '#e0f2fe',
+      })
+      .setOrigin(0.5);
+    const langHit = scene.add
+      .zone(langX + langW / 2, pillY + pillH / 2, langW, pillH)
+      .setInteractive({ useHandCursor: true });
+    langHit.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.button === 0) this.callbacks.onToggleLanguage();
+    });
+
+    // Mute Pill
+    const muteX = px + pw - 178;
+    const muteW = 74;
+    this.mutePillBg = scene.add.graphics();
+    this.muteText = scene.add
+      .text(muteX + muteW / 2, pillY + pillH / 2, '', {
+        fontFamily: 'ui-monospace, Consolas, monospace',
+        fontSize: '14px',
         fontStyle: 'bold',
         color: '#cbd5e1',
       })
       .setOrigin(0.5);
-
-    const rstHit = scene.add
-      .zone(rstX + rstW / 2, rstY + rstH / 2, rstW, rstH)
+    const muteHit = scene.add
+      .zone(muteX + muteW / 2, pillY + pillH / 2, muteW, pillH)
       .setInteractive({ useHandCursor: true });
-    rstHit.on('pointerdown', () => this.callbacks.onRestart());
+    muteHit.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.button === 0) this.callbacks.onToggleMute();
+    });
+
+    // Pause Pill
+    const pauseX = px + pw - 94;
+    const pauseW = 70;
+    const pauseBg = scene.add.graphics();
+    pauseBg.fillStyle(0x1e293b, 0.9);
+    pauseBg.fillRoundedRect(pauseX, pillY, pauseW, pillH, 10);
+    pauseBg.lineStyle(1.5, 0x94a3b8, 0.6);
+    pauseBg.strokeRoundedRect(pauseX, pillY, pauseW, pillH, 10);
+    this.pauseText = scene.add
+      .text(pauseX + pauseW / 2, pillY + pillH / 2, '', {
+        fontFamily: 'ui-monospace, Consolas, monospace',
+        fontSize: '14px',
+        fontStyle: 'bold',
+        color: '#e2e8f0',
+      })
+      .setOrigin(0.5);
+    const pauseHit = scene.add
+      .zone(pauseX + pauseW / 2, pillY + pillH / 2, pauseW, pillH)
+      .setInteractive({ useHandCursor: true });
+    pauseHit.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.button === 0) this.callbacks.onPause();
+    });
 
     // Stats Row
     const statsY = py + 82;
-    scene.add.text(px + 28, statsY, 'SCORE', {
+    this.scoreLabelText = scene.add.text(px + 28, statsY, '', {
       fontFamily: 'ui-monospace, Consolas, monospace',
       fontSize: '16px',
       color: '#94a3b8',
@@ -126,7 +189,7 @@ export class HudRenderer {
       color: '#f8fafc',
     });
 
-    scene.add.text(px + 314, statsY, 'LEVEL', {
+    this.levelLabelText = scene.add.text(px + 314, statsY, '', {
       fontFamily: 'ui-monospace, Consolas, monospace',
       fontSize: '16px',
       color: '#94a3b8',
@@ -138,7 +201,7 @@ export class HudRenderer {
       color: '#67e8f9',
     });
 
-    scene.add.text(px + 446, statsY, 'LINES', {
+    this.linesLabelText = scene.add.text(px + 446, statsY, '', {
       fontFamily: 'ui-monospace, Consolas, monospace',
       fontSize: '16px',
       color: '#94a3b8',
@@ -150,7 +213,7 @@ export class HudRenderer {
       color: '#38bdf8',
     });
 
-    scene.add.text(px + 586, statsY, 'RINGS', {
+    this.ringsLabelText = scene.add.text(px + 586, statsY, '', {
       fontFamily: 'ui-monospace, Consolas, monospace',
       fontSize: '16px',
       color: '#94a3b8',
@@ -171,7 +234,7 @@ export class HudRenderer {
       color: '#94a3b8',
     });
 
-    this.flowBadgeText = scene.add.text(px + 28, statsY + 86, 'FLOW x1.0', {
+    this.flowBadgeText = scene.add.text(px + 28, statsY + 86, '', {
       fontFamily: 'ui-monospace, Consolas, monospace',
       fontSize: '17px',
       fontStyle: 'bold',
@@ -207,13 +270,13 @@ export class HudRenderer {
     boxesBg.strokeRoundedRect(nextBoxX, boxY, boxW, boxH, 14);
     boxesBg.strokeRoundedRect(holdBoxX, boxY, boxW, boxH, 14);
 
-    scene.add.text(nextBoxX + 18, boxY + 12, 'NEXT', {
+    this.nextLabelText = scene.add.text(nextBoxX + 18, boxY + 12, '', {
       fontFamily: 'ui-monospace, Consolas, monospace',
       fontSize: '17px',
       fontStyle: 'bold',
       color: '#94a3b8',
     });
-    scene.add.text(holdBoxX + 18, boxY + 12, 'HOLD [C / .]', {
+    this.holdLabelText = scene.add.text(holdBoxX + 18, boxY + 12, '', {
       fontFamily: 'ui-monospace, Consolas, monospace',
       fontSize: '17px',
       fontStyle: 'bold',
@@ -234,15 +297,15 @@ export class HudRenderer {
     // CHARGE bar
     this.chargeRect = {
       x: px + 28,
-      y: py + 400,
+      y: py + 402,
       w: pw - 56,
-      h: 70,
+      h: 72,
     };
     this.chargeBarGraphics = scene.add.graphics();
 
-    this.chargeLabelText = scene.add.text(this.chargeRect.x + 18, this.chargeRect.y + 10, 'CHARGE', {
+    this.chargeLabelText = scene.add.text(this.chargeRect.x + 18, this.chargeRect.y + 10, '', {
       fontFamily: 'ui-monospace, Consolas, monospace',
-      fontSize: '17px',
+      fontSize: '16px',
       fontStyle: 'bold',
       color: '#cbd5e1',
     });
@@ -263,10 +326,89 @@ export class HudRenderer {
         this.chargeRect.h,
       )
       .setInteractive({ useHandCursor: true });
-    chargeHit.on('pointerdown', () => this.callbacks.onActivateStarCore());
+    chargeHit.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.button === 0) this.callbacks.onActivateStarCore();
+    });
+
+    // Bottom-right controls panel (Stage 5 AI-chan slot)
+    const { x, y, w, h } = MASCOT_PANEL;
+    const panel = scene.add.graphics();
+    panel.fillStyle(0x111936, 0.64);
+    panel.fillRoundedRect(x, y, w, h, 20);
+    panel.lineStyle(1.5, 0x8b5cf6, 0.45);
+    panel.strokeRoundedRect(x, y, w, h, 20);
+
+    this.controlsTitleText = scene.add.text(x + 28, y + 22, '', {
+      fontFamily: 'ui-monospace, Consolas, monospace',
+      fontSize: '19px',
+      fontStyle: 'bold',
+      color: '#c4b5fd',
+    });
+
+    this.mascotSlotText = scene.add
+      .text(x + w - 28, y + 24, '', {
+        fontFamily: 'system-ui, -apple-system, Segoe UI, sans-serif',
+        fontSize: '14px',
+        color: '#94a3b8',
+      })
+      .setOrigin(1, 0);
+
+    const colW = (w - 56) / 3;
+    for (let i = 0; i < 3; i++) {
+      const cx = x + 28 + i * colW;
+      const cy = y + 72;
+      this.colTitleTexts.push(
+        scene.add.text(cx, cy, '', {
+          fontFamily: 'ui-monospace, Consolas, monospace',
+          fontSize: '15px',
+          fontStyle: 'bold',
+          color: '#67e8f9',
+        }),
+      );
+      this.colBodyTexts.push(
+        scene.add.text(cx, cy + 30, '', {
+          fontFamily: 'ui-monospace, Consolas, monospace',
+          fontSize: '12px',
+          lineSpacing: 13,
+          color: '#cbd5e1',
+        }),
+      );
+    }
+
+    this.quickTipText = scene.add.text(x + 28, y + h - 38, '', {
+      fontFamily: 'ui-monospace, Consolas, monospace',
+      fontSize: '14px',
+      color: '#94a3b8',
+    });
 
     this.drawDifficultyPill('easy');
-    this.drawControlsPanel(scene);
+    this.refreshLocale();
+  }
+
+  refreshLocale(): void {
+    const prefs = appStorage.getPreferences();
+
+    this.langText.setText(t('title.langToggle'));
+    this.pauseText.setText(t('hud.pauseBtn'));
+    this.drawMutePill(prefs.muted);
+
+    this.scoreLabelText.setText(t('hud.score'));
+    this.levelLabelText.setText(t('hud.level'));
+    this.linesLabelText.setText(t('hud.lines'));
+    this.ringsLabelText.setText(t('hud.rings'));
+    this.nextLabelText.setText(t('hud.next'));
+    this.holdLabelText.setText(t('hud.hold'));
+
+    this.controlsTitleText.setText(t('controls.title'));
+    this.mascotSlotText.setText(t('hud.mascotSlot'));
+    this.quickTipText.setText(t('hud.quickTip'));
+
+    this.colTitleTexts[0].setText(t('controls.numpadTitle'));
+    this.colBodyTexts[0].setText(t('controls.numpadLines'));
+    this.colTitleTexts[1].setText(t('controls.wasdTitle'));
+    this.colBodyTexts[1].setText(t('controls.wasdLines'));
+    this.colTitleTexts[2].setText(t('controls.mouseTitle'));
+    this.colBodyTexts[2].setText(t('controls.mouseLines'));
   }
 
   showScoreDelta(delta: number, color = '#67e8f9'): void {
@@ -327,21 +469,23 @@ export class HudRenderer {
     const mult = FLOW_MULTIPLIERS[state.flowCombo] ?? 1.0;
     if (state.flowCombo > 0) {
       this.flowBadgeText
-        .setText(`FLOW x${mult.toFixed(1)} (${12 - state.piecesSinceLastClear} left)`)
+        .setText(`${t('hud.flow')} ×${mult.toFixed(1)} (${12 - state.piecesSinceLastClear} ${t('hud.left')})`)
         .setColor('#38bdf8');
     } else {
-      this.flowBadgeText.setText('FLOW x1.0').setColor('#64748b');
+      this.flowBadgeText.setText(`${t('hud.flow')} ×1.0`).setColor('#64748b');
     }
 
     if (state.quickStreak >= 2) {
-      this.quickBadgeText.setText(`QUICK! x${state.quickStreak}`);
+      this.quickBadgeText.setText(`${t('callout.quick')} ×${state.quickStreak}`);
     } else {
       this.quickBadgeText.setText('');
     }
 
     const bestRing = getBestRingProgress(state.board);
     if (bestRing && bestRing.ratio >= 0.5) {
-      this.bestRingBadgeText.setText(`RING ${bestRing.ring}: ${bestRing.filled}/${bestRing.total}`);
+      this.bestRingBadgeText.setText(
+        `${t('hud.ring')} ${bestRing.ring}: ${bestRing.filled}/${bestRing.total}`,
+      );
     } else {
       this.bestRingBadgeText.setText('');
     }
@@ -352,12 +496,11 @@ export class HudRenderer {
     if (state.holdPiece) {
       const alpha = state.holdUsedThisTurn ? 0.35 : 1;
       this.drawPiecePreview(state.holdPiece, this.holdBoxCenter.x, this.holdBoxCenter.y, alpha);
-      this.holdHintText.setText(state.holdUsedThisTurn ? 'USED' : 'READY');
+      this.holdHintText.setText(state.holdUsedThisTurn ? t('hud.holdUsed') : t('hud.holdReady'));
     } else {
-      this.holdHintText.setText('EMPTY');
+      this.holdHintText.setText(t('hud.holdEmpty'));
     }
 
-    // Draw CHARGE bar
     this.drawChargeBar(state);
   }
 
@@ -365,10 +508,10 @@ export class HudRenderer {
     const px = HUD_PANEL.x;
     const py = HUD_PANEL.y;
     const pw = HUD_PANEL.w;
-    const modeX = px + pw - 270;
-    const modeY = py + 20;
-    const modeW = 122;
-    const modeH = 38;
+    const modeX = px + pw - 372;
+    const pillY = py + 20;
+    const modeW = 88;
+    const pillH = 36;
 
     const isEasy = difficulty === 'easy';
     const borderColor = isEasy ? 0x10b981 : 0xf43f5e;
@@ -376,13 +519,33 @@ export class HudRenderer {
 
     this.modePillBg.clear();
     this.modePillBg.fillStyle(fillColor, 0.85);
-    this.modePillBg.fillRoundedRect(modeX, modeY, modeW, modeH, 10);
+    this.modePillBg.fillRoundedRect(modeX, pillY, modeW, pillH, 10);
     this.modePillBg.lineStyle(1.5, borderColor, 0.9);
-    this.modePillBg.strokeRoundedRect(modeX, modeY, modeW, modeH, 10);
+    this.modePillBg.strokeRoundedRect(modeX, pillY, modeW, pillH, 10);
 
     this.modeText
       .setText(isEasy ? 'EASY' : 'HARD')
       .setColor(isEasy ? '#6ee7b7' : '#fda4af');
+  }
+
+  private drawMutePill(muted: boolean): void {
+    const px = HUD_PANEL.x;
+    const py = HUD_PANEL.y;
+    const pw = HUD_PANEL.w;
+    const muteX = px + pw - 178;
+    const pillY = py + 20;
+    const muteW = 74;
+    const pillH = 36;
+
+    this.mutePillBg.clear();
+    this.mutePillBg.fillStyle(muted ? 0x3b1322 : 0x16203d, 0.9);
+    this.mutePillBg.fillRoundedRect(muteX, pillY, muteW, pillH, 10);
+    this.mutePillBg.lineStyle(1.5, muted ? 0xf43f5e : 0x67e8f9, 0.65);
+    this.mutePillBg.strokeRoundedRect(muteX, pillY, muteW, pillH, 10);
+
+    this.muteText
+      .setText(muted ? t('hud.muteOff') : t('hud.muteOn'))
+      .setColor(muted ? '#fda4af' : '#e0f2fe');
   }
 
   private drawPiecePreview(kind: PieceKind, cx: number, cy: number, alpha: number): void {
@@ -420,7 +583,7 @@ export class HudRenderer {
     const { x, y, w, h } = this.chargeRect;
     const pct = Math.max(0, Math.min(100, state.charge));
     const ready = pct >= 100;
-    const coreName = state.difficulty === 'easy' ? 'NOVA BOMB 3x3' : 'STARDUST PIERCER';
+    const coreName = state.difficulty === 'easy' ? t('hud.coreEasy') : t('hud.coreHard');
 
     this.chargeBarGraphics.clear();
     this.chargeBarGraphics.fillStyle(0x0b1024, 0.82);
@@ -429,116 +592,30 @@ export class HudRenderer {
     if (ready) {
       const pulse = 0.65 + 0.35 * Math.sin(this.pulseMs * 0.01);
       this.chargeBarGraphics.fillStyle(0xfacc15, 0.25 * pulse);
-      this.chargeBarGraphics.fillRoundedRect(x + 12, y + 36, w - 24, 22, 8);
+      this.chargeBarGraphics.fillRoundedRect(x + 12, y + 38, w - 24, 22, 8);
       this.chargeBarGraphics.fillStyle(0xec4899, 0.78);
-      this.chargeBarGraphics.fillRoundedRect(x + 12, y + 36, w - 24, 22, 8);
+      this.chargeBarGraphics.fillRoundedRect(x + 12, y + 38, w - 24, 22, 8);
       this.chargeBarGraphics.lineStyle(2, 0xfef08a, pulse);
       this.chargeBarGraphics.strokeRoundedRect(x, y, w, h, 14);
 
       this.chargeLabelText
-        .setText(`READY! [SHIFT / / / CLICK] · ${coreName}`)
+        .setText(`${t('hud.chargeReady')} · ${coreName}`)
         .setColor('#fef08a');
       this.chargePctText.setText('100%').setColor('#fef08a');
     } else {
       const barMaxW = w - 24;
       const fillW = Math.round((barMaxW * pct) / 100);
       this.chargeBarGraphics.fillStyle(0x1e293b, 0.85);
-      this.chargeBarGraphics.fillRoundedRect(x + 12, y + 36, barMaxW, 22, 8);
+      this.chargeBarGraphics.fillRoundedRect(x + 12, y + 38, barMaxW, 22, 8);
       if (fillW > 0) {
         this.chargeBarGraphics.fillStyle(0x38bdf8, 0.9);
-        this.chargeBarGraphics.fillRoundedRect(x + 12, y + 36, Math.max(10, fillW), 22, 8);
+        this.chargeBarGraphics.fillRoundedRect(x + 12, y + 38, Math.max(10, fillW), 22, 8);
       }
       this.chargeBarGraphics.lineStyle(1.5, 0x334155, 0.8);
       this.chargeBarGraphics.strokeRoundedRect(x, y, w, h, 14);
 
-      this.chargeLabelText.setText(`STAR CORE CHARGE · ${coreName}`).setColor('#cbd5e1');
+      this.chargeLabelText.setText(`${t('hud.charge')} · ${coreName}`).setColor('#cbd5e1');
       this.chargePctText.setText(`${Math.floor(pct)}%`).setColor('#67e8f9');
     }
-  }
-
-  private drawControlsPanel(scene: Phaser.Scene): void {
-    const { x, y, w, h } = MASCOT_PANEL;
-    const panel = scene.add.graphics();
-    panel.fillStyle(0x111936, 0.64);
-    panel.fillRoundedRect(x, y, w, h, 20);
-    panel.lineStyle(1.5, 0x8b5cf6, 0.45);
-    panel.strokeRoundedRect(x, y, w, h, 20);
-
-    scene.add.text(x + 28, y + 22, 'CONTROLS · TRIPLE PARALLEL INPUT', {
-      fontFamily: 'ui-monospace, Consolas, monospace',
-      fontSize: '20px',
-      fontStyle: 'bold',
-      color: '#c4b5fd',
-    });
-
-    scene.add
-      .text(x + w - 28, y + 24, 'Gemini AI-chan arrives in Stage 5', {
-        fontFamily: 'system-ui, -apple-system, Segoe UI, sans-serif',
-        fontSize: '15px',
-        color: '#94a3b8',
-      })
-      .setOrigin(1, 0);
-
-    const cols = [
-      {
-        title: 'NUMPAD (8-WAY)',
-        lines: [
-          '7 8 9 / 4 6 / 1 2 3  Aim & Nudge',
-          '5                    Launch / Drop',
-          '0 / Enter / + / -    Rotate',
-          '.                    Hold',
-          '/                    Star Core',
-        ],
-      },
-      {
-        title: 'WASD / ARROWS',
-        lines: [
-          'WASD / Arrows        Aim & Nudge',
-          'Enter / F            Launch / Drop',
-          'Space / Q E Z X      Rotate',
-          'C                    Hold',
-          'Shift                Star Core',
-        ],
-      },
-      {
-        title: 'MOUSE',
-        lines: [
-          'Move Around Core     Aim 8-Way',
-          'Left Click           Launch / Drop',
-          'Right / Wheel        Rotate',
-          'Middle / Side        Hold',
-          'Click Charge Bar     Star Core',
-        ],
-      },
-    ];
-
-    const colW = (w - 56) / 3;
-    cols.forEach((col, i) => {
-      const cx = x + 28 + i * colW;
-      const cy = y + 74;
-      scene.add.text(cx, cy, col.title, {
-        fontFamily: 'ui-monospace, Consolas, monospace',
-        fontSize: '16px',
-        fontStyle: 'bold',
-        color: '#67e8f9',
-      });
-      scene.add.text(cx, cy + 32, col.lines.join('\n'), {
-        fontFamily: 'ui-monospace, Consolas, monospace',
-        fontSize: '13px',
-        lineSpacing: 14,
-        color: '#cbd5e1',
-      });
-    });
-
-    scene.add.text(
-      x + 28,
-      y + h - 38,
-      'R: Quick Restart   ·   Quick Launch <= 0.5s triggers QUICK! bonus & +8% charge',
-      {
-        fontFamily: 'ui-monospace, Consolas, monospace',
-        fontSize: '15px',
-        color: '#94a3b8',
-      },
-    );
   }
 }

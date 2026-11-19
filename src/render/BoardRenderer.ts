@@ -68,13 +68,12 @@ const RING_BG_COLORS: Record<RingIndex, number> = {
 
 export class BoardRenderer {
   private readonly scene: Phaser.Scene;
+  private readonly boardContainer: Phaser.GameObjects.Container;
   private readonly boardGraphics: Phaser.GameObjects.Graphics;
   private readonly overlayGraphics: Phaser.GameObjects.Graphics;
   private readonly centerBorderGraphics: Phaser.GameObjects.Graphics;
   private readonly introText: Phaser.GameObjects.Text;
-  private readonly gameOverGroup: Phaser.GameObjects.Container;
-  private readonly gameOverScoreText: Phaser.GameObjects.Text;
-  private readonly gameOverStatsText: Phaser.GameObjects.Text;
+  private readonly resumeText: Phaser.GameObjects.Text;
 
   private readonly flashes: FlashCell[] = [];
   private readonly quickTrails: FlashCell[] = [];
@@ -86,9 +85,17 @@ export class BoardRenderer {
     this.scene = scene;
     this.drawStaticBackdrop();
 
+    const boardFrameAndGrid = this.createBoardGridGraphics();
     this.boardGraphics = scene.add.graphics();
     this.centerBorderGraphics = scene.add.graphics();
     this.overlayGraphics = scene.add.graphics();
+
+    this.boardContainer = scene.add.container(0, 0, [
+      boardFrameAndGrid,
+      this.boardGraphics,
+      this.centerBorderGraphics,
+      this.overlayGraphics,
+    ]);
 
     this.introText = scene.add
       .text(BOARD_CENTER_X, BOARD_CENTER_Y, '', {
@@ -103,58 +110,75 @@ export class BoardRenderer {
       .setDepth(20)
       .setVisible(false);
 
-    // Stage 2 Game Over overlay over the board
-    const goBg = scene.add.graphics();
-    goBg.fillStyle(0x070914, 0.8);
-    goBg.fillRoundedRect(BOARD_X, BOARD_Y, BOARD_PIXEL_SIZE, BOARD_PIXEL_SIZE, 12);
-    goBg.lineStyle(3, 0xf43f5e, 0.85);
-    goBg.strokeRoundedRect(BOARD_X + 180, BOARD_Y + 260, BOARD_PIXEL_SIZE - 360, 392, 20);
-    goBg.fillStyle(0x111936, 0.92);
-    goBg.fillRoundedRect(BOARD_X + 180, BOARD_Y + 260, BOARD_PIXEL_SIZE - 360, 392, 20);
-
-    const goTitle = scene.add
-      .text(BOARD_CENTER_X, BOARD_CENTER_Y - 120, 'GAME OVER', {
+    this.resumeText = scene.add
+      .text(BOARD_CENTER_X, BOARD_CENTER_Y, '', {
         fontFamily: 'system-ui, -apple-system, Segoe UI, sans-serif',
-        fontSize: '64px',
-        fontStyle: 'bold',
-        color: '#fda4af',
-      })
-      .setOrigin(0.5);
-
-    this.gameOverScoreText = scene.add
-      .text(BOARD_CENTER_X, BOARD_CENTER_Y - 24, 'SCORE: 0', {
-        fontFamily: 'ui-monospace, Consolas, monospace',
-        fontSize: '36px',
-        fontStyle: 'bold',
-        color: '#e0f2fe',
-      })
-      .setOrigin(0.5);
-
-    this.gameOverStatsText = scene.add
-      .text(BOARD_CENTER_X, BOARD_CENTER_Y + 34, 'RINGS: 0   LEVEL: 1', {
-        fontFamily: 'ui-monospace, Consolas, monospace',
-        fontSize: '24px',
-        color: '#94a3b8',
-      })
-      .setOrigin(0.5);
-
-    const goPrompt = scene.add
-      .text(BOARD_CENTER_X, BOARD_CENTER_Y + 118, '[ENTER / R]  PLAY AGAIN', {
-        fontFamily: 'ui-monospace, Consolas, monospace',
-        fontSize: '26px',
+        fontSize: '112px',
         fontStyle: 'bold',
         color: '#67e8f9',
+        stroke: '#070914',
+        strokeThickness: 12,
       })
-      .setOrigin(0.5);
+      .setOrigin(0.5)
+      .setDepth(50)
+      .setVisible(false);
+  }
 
-    this.gameOverGroup = scene.add.container(0, 0, [
-      goBg,
-      goTitle,
-      this.gameOverScoreText,
-      this.gameOverStatsText,
-      goPrompt,
-    ]);
-    this.gameOverGroup.setDepth(30).setVisible(false);
+  setPausedBlur(paused: boolean): void {
+    const postFX = this.boardContainer.postFX;
+    if (!postFX) {
+      return;
+    }
+    postFX.clear();
+    if (paused) {
+      postFX.addBlur(1, 3, 3, 2);
+    }
+  }
+
+  renderResumeCountdown(remainingMs: number, totalMs: number): void {
+    if (remainingMs <= 0) {
+      this.resumeText.setVisible(false);
+      return;
+    }
+    const stepMs = totalMs / 3;
+    const count = Math.min(3, Math.max(1, Math.ceil(remainingMs / stepMs)));
+    const frac = (remainingMs % stepMs) / stepMs;
+    this.resumeText
+      .setText(String(count))
+      .setScale(0.88 + 0.28 * frac)
+      .setAlpha(0.5 + 0.5 * frac)
+      .setVisible(true);
+  }
+
+  hideResumeCountdown(): void {
+    this.resumeText.setVisible(false);
+  }
+
+  renderGameOverOverload(progress: number): void {
+    const clamped = Math.min(1, Math.max(0, progress));
+    const centerOffset = CENTER_MIN * CELL_SIZE;
+    const centerSize = 4 * CELL_SIZE;
+    const pulse = 0.5 + 0.45 * Math.sin(clamped * Math.PI * 6);
+
+    this.overlayGraphics.fillStyle(0xf43f5e, 0.14 + 0.16 * clamped);
+    this.overlayGraphics.fillRoundedRect(BOARD_X, BOARD_Y, BOARD_PIXEL_SIZE, BOARD_PIXEL_SIZE, 12);
+
+    this.overlayGraphics.fillStyle(0xf43f5e, 0.28 + 0.35 * pulse);
+    this.overlayGraphics.fillRoundedRect(
+      BOARD_X + centerOffset,
+      BOARD_Y + centerOffset,
+      centerSize,
+      centerSize,
+      10,
+    );
+    this.overlayGraphics.lineStyle(6, 0xfda4af, 0.85);
+    this.overlayGraphics.strokeRoundedRect(
+      BOARD_X + centerOffset - 4,
+      BOARD_Y + centerOffset - 4,
+      centerSize + 8,
+      centerSize + 8,
+      12,
+    );
   }
 
   clearAnimations(): void {
@@ -446,17 +470,6 @@ export class BoardRenderer {
     } else {
       this.introText.setVisible(false);
     }
-
-    // 8. Stage 2 Game Over overlay
-    if (state.phase === 'GAME_OVER') {
-      this.gameOverScoreText.setText(`SCORE: ${state.score.toLocaleString()}`);
-      this.gameOverStatsText.setText(
-        `LINES: ${state.linesCleared}   RINGS: ${state.ringsCleared}   LEVEL: ${state.level}`,
-      );
-      this.gameOverGroup.setVisible(true);
-    } else {
-      this.gameOverGroup.setVisible(false);
-    }
   }
 
   private renderGhost(state: GameStateSnapshot, ghost: GhostPlacement): void {
@@ -608,7 +621,7 @@ export class BoardRenderer {
       this.overlayGraphics.lineStyle(3, 0x67e8f9, 0.45);
       this.overlayGraphics.lineBetween(
         BOARD_CENTER_X + ux * 154,
-        BOARD_CENTER_Y + uy * 178,
+        BOARD_CENTER_Y + uy * 154,
         baseX,
         baseY,
       );
@@ -632,18 +645,20 @@ export class BoardRenderer {
       stars.fillStyle(i % 5 === 0 ? 0x9dd2ff : 0xffffff, alpha);
       stars.fillCircle(sx, sy, radius);
     }
+  }
 
-    const frame = this.scene.add.graphics();
-    frame.lineStyle(4, 0x4cc9f0, 0.4);
-    frame.strokeRoundedRect(
+  private createBoardGridGraphics(): Phaser.GameObjects.Graphics {
+    const g = this.scene.add.graphics();
+    g.lineStyle(4, 0x4cc9f0, 0.4);
+    g.strokeRoundedRect(
       BOARD_X - 12,
       BOARD_Y - 12,
       BOARD_PIXEL_SIZE + 24,
       BOARD_PIXEL_SIZE + 24,
       18,
     );
-    frame.lineStyle(1.5, 0xa5f3fc, 0.8);
-    frame.strokeRoundedRect(
+    g.lineStyle(1.5, 0xa5f3fc, 0.8);
+    g.strokeRoundedRect(
       BOARD_X - 4,
       BOARD_Y - 4,
       BOARD_PIXEL_SIZE + 8,
@@ -651,7 +666,6 @@ export class BoardRenderer {
       12,
     );
 
-    const grid = this.scene.add.graphics();
     for (let r = 0; r < BOARD_SIZE; r++) {
       for (let c = 0; c < BOARD_SIZE; c++) {
         const { x, y } = cellToPixel(r, c);
@@ -659,17 +673,19 @@ export class BoardRenderer {
         const center = isInCenter(r, c);
 
         if (center) {
-          grid.fillStyle(0x22d3ee, 0.13);
-          grid.fillRect(x + 3, y + 3, CELL_SIZE - 6, CELL_SIZE - 6);
-          grid.lineStyle(1, 0x67e8f9, 0.35);
-          grid.strokeRect(x + 3, y + 3, CELL_SIZE - 6, CELL_SIZE - 6);
+          g.fillStyle(0x22d3ee, 0.13);
+          g.fillRect(x + 3, y + 3, CELL_SIZE - 6, CELL_SIZE - 6);
+          g.lineStyle(1, 0x67e8f9, 0.35);
+          g.strokeRect(x + 3, y + 3, CELL_SIZE - 6, CELL_SIZE - 6);
         } else if (ring !== null) {
-          grid.fillStyle(RING_BG_COLORS[ring], 0.1);
-          grid.fillRect(x + 3, y + 3, CELL_SIZE - 6, CELL_SIZE - 6);
-          grid.lineStyle(1, RING_BG_COLORS[ring], 0.25);
-          grid.strokeRect(x + 3, y + 3, CELL_SIZE - 6, CELL_SIZE - 6);
+          g.fillStyle(RING_BG_COLORS[ring], 0.1);
+          g.fillRect(x + 3, y + 3, CELL_SIZE - 6, CELL_SIZE - 6);
+          g.lineStyle(1, RING_BG_COLORS[ring], 0.25);
+          g.strokeRect(x + 3, y + 3, CELL_SIZE - 6, CELL_SIZE - 6);
         }
       }
     }
+
+    return g;
   }
 }
