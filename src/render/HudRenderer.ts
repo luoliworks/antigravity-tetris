@@ -8,7 +8,7 @@ import {
 import type { Difficulty, GameStateSnapshot, PieceKind } from '../core';
 import { t } from '../i18n/i18n';
 import { appStorage } from '../storage/storage';
-import { HUD_PANEL, MASCOT_PANEL } from './layout';
+import { HUD_PANEL } from './layout';
 import { drawCrystalCell } from './pieceColors';
 
 export interface HudCallbacks {
@@ -51,12 +51,6 @@ export class HudRenderer {
   private readonly holdHintText: Phaser.GameObjects.Text;
   private readonly chargeLabelText: Phaser.GameObjects.Text;
   private readonly chargePctText: Phaser.GameObjects.Text;
-
-  private readonly controlsTitleText: Phaser.GameObjects.Text;
-  private readonly mascotSlotText: Phaser.GameObjects.Text;
-  private readonly quickTipText: Phaser.GameObjects.Text;
-  private readonly colTitleTexts: Phaser.GameObjects.Text[] = [];
-  private readonly colBodyTexts: Phaser.GameObjects.Text[] = [];
 
   private readonly scorePopupAnchor: { x: number; y: number };
   private readonly levelBarPos: { x: number; y: number; w: number; h: number };
@@ -330,57 +324,6 @@ export class HudRenderer {
       if (pointer.button === 0) this.callbacks.onActivateStarCore();
     });
 
-    // Bottom-right controls panel (Stage 5 AI-chan slot)
-    const { x, y, w, h } = MASCOT_PANEL;
-    const panel = scene.add.graphics();
-    panel.fillStyle(0x111936, 0.64);
-    panel.fillRoundedRect(x, y, w, h, 20);
-    panel.lineStyle(1.5, 0x8b5cf6, 0.45);
-    panel.strokeRoundedRect(x, y, w, h, 20);
-
-    this.controlsTitleText = scene.add.text(x + 28, y + 22, '', {
-      fontFamily: 'ui-monospace, Consolas, monospace',
-      fontSize: '19px',
-      fontStyle: 'bold',
-      color: '#c4b5fd',
-    });
-
-    this.mascotSlotText = scene.add
-      .text(x + w - 28, y + 24, '', {
-        fontFamily: 'system-ui, -apple-system, Segoe UI, sans-serif',
-        fontSize: '14px',
-        color: '#94a3b8',
-      })
-      .setOrigin(1, 0);
-
-    const colW = (w - 56) / 3;
-    for (let i = 0; i < 3; i++) {
-      const cx = x + 28 + i * colW;
-      const cy = y + 72;
-      this.colTitleTexts.push(
-        scene.add.text(cx, cy, '', {
-          fontFamily: 'ui-monospace, Consolas, monospace',
-          fontSize: '15px',
-          fontStyle: 'bold',
-          color: '#67e8f9',
-        }),
-      );
-      this.colBodyTexts.push(
-        scene.add.text(cx, cy + 30, '', {
-          fontFamily: 'ui-monospace, Consolas, monospace',
-          fontSize: '12px',
-          lineSpacing: 13,
-          color: '#cbd5e1',
-        }),
-      );
-    }
-
-    this.quickTipText = scene.add.text(x + 28, y + h - 38, '', {
-      fontFamily: 'ui-monospace, Consolas, monospace',
-      fontSize: '14px',
-      color: '#94a3b8',
-    });
-
     this.drawDifficultyPill('easy');
     this.refreshLocale();
   }
@@ -398,17 +341,6 @@ export class HudRenderer {
     this.ringsLabelText.setText(t('hud.rings'));
     this.nextLabelText.setText(t('hud.next'));
     this.holdLabelText.setText(t('hud.hold'));
-
-    this.controlsTitleText.setText(t('controls.title'));
-    this.mascotSlotText.setText(t('hud.mascotSlot'));
-    this.quickTipText.setText(t('hud.quickTip'));
-
-    this.colTitleTexts[0].setText(t('controls.numpadTitle'));
-    this.colBodyTexts[0].setText(t('controls.numpadLines'));
-    this.colTitleTexts[1].setText(t('controls.wasdTitle'));
-    this.colBodyTexts[1].setText(t('controls.wasdLines'));
-    this.colTitleTexts[2].setText(t('controls.mouseTitle'));
-    this.colBodyTexts[2].setText(t('controls.mouseLines'));
   }
 
   showScoreDelta(delta: number, color = '#67e8f9'): void {

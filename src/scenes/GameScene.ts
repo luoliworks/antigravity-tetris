@@ -1,11 +1,14 @@
 import Phaser from 'phaser';
 import { GameEngine, getPieceCells } from '../core';
 import type { Difficulty, GameEvent, GridPos } from '../core';
-import { t, toggleLanguage } from '../i18n/i18n';
+import { getLanguage, t, toggleLanguage } from '../i18n/i18n';
 import { InputManager } from '../input/InputManager';
+import { AiChanController } from '../mascot';
 import { BoardRenderer } from '../render/BoardRenderer';
 import { HudRenderer } from '../render/HudRenderer';
+import { MascotRenderer, preloadAiChanAssets } from '../render/MascotRenderer';
 import { appStorage } from '../storage/storage';
+import type { HighScoreRecordResult } from '../storage/storage';
 import { GameOverOverlay } from '../ui/GameOverOverlay';
 import { ControlsModal } from '../ui/Modals';
 import { PauseOverlay } from '../ui/PauseOverlay';
@@ -22,6 +25,8 @@ export class GameScene extends Phaser.Scene {
   private engine!: GameEngine;
   private boardRenderer!: BoardRenderer;
   private hudRenderer!: HudRenderer;
+  private mascotRenderer!: MascotRenderer;
+  private aiChanController!: AiChanController;
   private inputManager!: InputManager;
 
   private pauseOverlay!: PauseOverlay;
@@ -35,6 +40,7 @@ export class GameScene extends Phaser.Scene {
   private resumeCountdownMs = 0;
   private gameOverOverloadMs = 0;
   private gameOverModalShown = false;
+  private pendingGameOverResult: HighScoreRecordResult | null = null;
 
   private unsubPrefs: (() => void) | null = null;
   private handleOverlayKeyBound: ((e: KeyboardEvent) => void) | null = null;
@@ -47,16 +53,35 @@ export class GameScene extends Phaser.Scene {
     this.difficulty = data?.difficulty === 'hard' ? 'hard' : 'easy';
   }
 
+  preload(): void {
+    preloadAiChanAssets(this);
+  }
+
   create(): void {
     this.paused = false;
     this.resumeCountdownMs = 0;
     this.gameOverOverloadMs = 0;
     this.gameOverModalShown = false;
+    this.pendingGameOverResult = null;
     this.currentFlightIsQuick = false;
     this.lastQuickTrailCells = [];
 
     this.engine = new GameEngine({ difficulty: this.difficulty });
     this.boardRenderer = new BoardRenderer(this);
+    this.aiChanController = new AiChanController({
+      enabled: appStorage.getPreferences().aiCommentary,
+    });
+    this.mascotRenderer = new MascotRenderer(this, {
+      onToggleAiCommentary: () => {
+        const cur = appStorage.getPreferences().aiCommentary;
+        appStorage.updatePreferences({ aiCommentary: !cur });
+      },
+      onOpenControls: () => {
+        if (!this.gameOverOverlay.isOpen()) {
+          this.controlsModal.open();
+        }
+      },
+    });
     this.hudRenderer = new HudRenderer(this, {
       onToggleDifficulty: () => {
         if (this.paused || this.controlsModal.isOpen()) return;
@@ -139,8 +164,10 @@ export class GameScene extends Phaser.Scene {
       },
     });
 
-    this.unsubPrefs = appStorage.subscribePreferences(() => {
+    this.unsubPrefs = appStorage.subscribePreferences((prefs) => {
+      this.aiChanController.setEnabled(prefs.aiCommentary);
       this.hudRenderer.refreshLocale();
+      this.mascotRenderer.refreshLocale();
       this.pauseOverlay.refreshLocale();
       this.gameOverOverlay.refreshLocale();
       this.controlsModal.refreshLocale();
@@ -148,6 +175,9 @@ export class GameScene extends Phaser.Scene {
 
     this.handleOverlayKeyBound = (e: KeyboardEvent) => this.onOverlayKeyDown(e);
     window.addEventListener('keydown', this.handleOverlayKeyBound);
+
+    this.aiChanController.reset(false);
+    this.aiChanController.trigger(this.difficulty === 'easy' ? 'start_easy' : 'start_hard');
 
     this.events.once('shutdown', () => this.cleanup());
     this.events.once('destroy', () => this.cleanup());
@@ -167,20 +197,32 @@ export class GameScene extends Phaser.Scene {
       const state = this.engine.getState();
       this.boardRenderer.render(state, this.engine.getGhostPlacement(), 0);
       this.hudRenderer.render(state, dtMs);
+      this.mascotRenderer.render(this.aiChanController.getSnapshot(getLanguage()), 0);
       return;
     }
 
     const preState = this.engine.getState();
-    if (preState.phase !== 'GAME_OVER') {
+    if (preState.phase !== 'GAME_OVER' && !this.controlsModal.isOpen()) {
       this.inputManager.update(dtMs);
       this.engine.tick(dtMs);
       this.handleEvents(this.engine.drainEvents());
     }
 
     const state = this.engine.getState();
+    this.aiChanController.tick(dtMs, {
+      activePlay:
+        state.phase !== 'INTRO' &&
+        state.phase !== 'GAME_OVER' &&
+        !this.controlsModal.isOpen(),
+      piecesSinceLastClear: state.piecesSinceLastClear,
+    });
+
     const ghost = this.engine.getGhostPlacement();
     this.boardRenderer.render(state, ghost, dtMs);
     this.hudRenderer.render(state, dtMs);
+
+    const mascotSnap = this.aiChanController.getSnapshot(getLanguage());
+    this.mascotRenderer.render(mascotSnap, dtMs);
 
     if (state.phase === 'GAME_OVER' && !this.gameOverModalShown) {
       this.gameOverOverloadMs += dtMs;
@@ -189,16 +231,21 @@ export class GameScene extends Phaser.Scene {
       );
       if (this.gameOverOverloadMs >= GAME_OVER_OVERLOAD_MS) {
         this.gameOverModalShown = true;
-        const result = appStorage.recordHighScore(this.difficulty, {
-          score: state.score,
-          level: state.level,
-          linesCleared: state.linesCleared,
-          ringsCleared: state.ringsCleared,
-          maxFlowCombo: state.maxFlowCombo,
-          quickRate: state.quickRate,
-        });
+        const result =
+          this.pendingGameOverResult ??
+          appStorage.recordHighScore(this.difficulty, {
+            score: state.score,
+            level: state.level,
+            linesCleared: state.linesCleared,
+            ringsCleared: state.ringsCleared,
+            maxFlowCombo: state.maxFlowCombo,
+            quickRate: state.quickRate,
+          });
         this.gameOverOverlay.show(state, this.difficulty, result);
+        this.gameOverOverlay.updateMascot(mascotSnap);
       }
+    } else if (this.gameOverOverlay.isOpen()) {
+      this.gameOverOverlay.updateMascot(mascotSnap);
     }
   }
 
@@ -289,12 +336,16 @@ export class GameScene extends Phaser.Scene {
     this.gameOverOverlay.hide();
     this.gameOverOverloadMs = 0;
     this.gameOverModalShown = false;
+    this.pendingGameOverResult = null;
 
     this.engine = new GameEngine({ difficulty: this.difficulty });
     this.inputManager.resetFlightHolds();
     this.boardRenderer.clearAnimations();
     this.currentFlightIsQuick = false;
     this.lastQuickTrailCells = [];
+
+    this.aiChanController.reset(false);
+    this.aiChanController.trigger(this.difficulty === 'easy' ? 'start_easy' : 'start_hard');
 
     if (difficultyChanged) {
       this.boardRenderer.showCallout(
@@ -307,6 +358,18 @@ export class GameScene extends Phaser.Scene {
   }
 
   private handleEvents(events: GameEvent[]): void {
+    let hasRingClear = false;
+    let hasLineClear = false;
+    let hasAllClear = false;
+    let hasMultiClear = false;
+    let hasNova = false;
+    let hasPiercerLock = false;
+    let enteredDanger = false;
+    let hasBlindShot = false;
+    let hasQuickStreak3 = false;
+    let hasConsecutiveHold = false;
+    let hasGameOver = false;
+
     for (const ev of events) {
       switch (ev.type) {
         case 'PIECE_SPAWNED':
@@ -329,8 +392,12 @@ export class GameScene extends Phaser.Scene {
               '#facc15',
             );
             this.hudRenderer.showScoreDelta(ev.scoreDelta, '#facc15');
+            if (ev.quickStreak >= 3 && ev.quickStreak % 3 === 0) {
+              hasQuickStreak3 = true;
+            }
           } else if (ev.blind) {
             this.boardRenderer.showCallout(t('callout.blind'), '#fb7185');
+            hasBlindShot = true;
           }
           break;
 
@@ -356,10 +423,22 @@ export class GameScene extends Phaser.Scene {
           if (ev.kind === 'STARDUST_PIERCER' && ev.placed.length > 0) {
             this.boardRenderer.triggerRingFlash(ev.placed, 0xf0abfc);
             this.boardRenderer.showCallout(t('callout.sniped'), '#f0abfc');
+            hasPiercerLock = true;
+          }
+          break;
+
+        case 'HOLD_SWAPPED':
+          if (ev.consecutiveHolds >= 2) {
+            hasConsecutiveHold = true;
           }
           break;
 
         case 'RINGS_CLEARED': {
+          this.aiChanController.notifyClear();
+          hasRingClear = true;
+          if (ev.isAllClear) hasAllClear = true;
+          if (ev.rings.length >= 2) hasMultiClear = true;
+
           const flashColor = ev.rings.length >= 2 ? 0xf0abfc : 0xe0f2fe;
           this.boardRenderer.triggerRingFlash(ev.clearedCells, flashColor);
           this.boardRenderer.triggerCellMovements(ev.movements);
@@ -387,6 +466,11 @@ export class GameScene extends Phaser.Scene {
         }
 
         case 'LINES_CLEARED': {
+          this.aiChanController.notifyClear();
+          hasLineClear = true;
+          if (ev.isAllClear) hasAllClear = true;
+          if (ev.isCrossClear || ev.lineCount >= 2) hasMultiClear = true;
+
           const flashColor = ev.lineCount >= 2 ? 0xfacc15 : 0x38bdf8;
           this.boardRenderer.triggerRingFlash(ev.clearedCells, flashColor);
           this.boardRenderer.triggerCellMovements(ev.movements);
@@ -418,6 +502,7 @@ export class GameScene extends Phaser.Scene {
         case 'NOVA_DETONATED':
           this.currentFlightIsQuick = false;
           this.lastQuickTrailCells = [];
+          hasNova = true;
           this.boardRenderer.triggerNovaBlast(ev.center);
           if (ev.scoreDelta > 0) {
             this.hudRenderer.showScoreDelta(ev.scoreDelta, '#fda4af');
@@ -432,20 +517,67 @@ export class GameScene extends Phaser.Scene {
           );
           break;
 
-        case 'GAME_OVER':
+        case 'DANGER_CHANGED':
+          this.aiChanController.setDanger(ev.inDanger);
+          if (ev.inDanger) {
+            enteredDanger = true;
+          }
+          break;
+
+        case 'GAME_OVER': {
           this.inputManager.resetFlightHolds();
           this.gameOverOverloadMs = 0;
           this.gameOverModalShown = false;
+          hasGameOver = true;
+
+          const snap = this.engine.getState();
+          this.pendingGameOverResult = appStorage.recordHighScore(this.difficulty, {
+            score: snap.score,
+            level: snap.level,
+            linesCleared: snap.linesCleared,
+            ringsCleared: snap.ringsCleared,
+            maxFlowCombo: snap.maxFlowCombo,
+            quickRate: snap.quickRate,
+          });
+          this.aiChanController.trigger(
+            this.pendingGameOverResult.isNewRecord ? 'game_over_record' : 'game_over_normal',
+          );
           break;
+        }
 
         default:
           break;
       }
     }
+
+    if (hasGameOver) {
+      return;
+    }
+
+    if (hasAllClear) {
+      this.aiChanController.trigger('all_clear');
+    } else if (hasMultiClear || (hasRingClear && hasLineClear)) {
+      this.aiChanController.trigger('multi_clear');
+    } else if (hasNova) {
+      this.aiChanController.trigger('nova_bomb');
+    } else if (hasPiercerLock) {
+      this.aiChanController.trigger('stardust_piercer');
+    } else if (enteredDanger) {
+      this.aiChanController.trigger('danger_enter');
+    } else if (hasRingClear || hasLineClear) {
+      this.aiChanController.trigger('single_clear');
+    } else if (hasBlindShot) {
+      this.aiChanController.trigger('blind_shot');
+    } else if (hasQuickStreak3) {
+      this.aiChanController.trigger('quick_streak_3');
+    } else if (hasConsecutiveHold) {
+      this.aiChanController.trigger('consecutive_hold');
+    }
   }
 
   private cleanup(): void {
     this.inputManager?.destroy();
+    this.mascotRenderer?.destroy();
     if (this.handleOverlayKeyBound) {
       window.removeEventListener('keydown', this.handleOverlayKeyBound);
       this.handleOverlayKeyBound = null;

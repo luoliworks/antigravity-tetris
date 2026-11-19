@@ -66,8 +66,23 @@ export const TRANSLATIONS = {
     'hud.pauseBtn': 'PAUSE',
     'hud.muteOn': 'SFX',
     'hud.muteOff': 'MUTE',
-    'hud.mascotSlot': 'Gemini AI-chan arrives in Stage 5',
     'hud.quickTip': 'Quick Launch <= 0.5s triggers QUICK! bonus & +8% charge',
+
+    // Mascot Panel (Gemini AI-chan)
+    'mascot.name': 'GEMINI AI-CHAN',
+    'mascot.role': 'ORBITAL OBSERVER',
+    'mascot.controlsBtn': 'CONTROLS',
+    'mascot.aiOn': 'AI: ON',
+    'mascot.aiOff': 'AI: OFF',
+    'mascot.idleNormal': 'Monitoring human orbital calculations...',
+    'mascot.idleDanger': 'Inner ring critical. Preparing failure log...',
+    'mascot.mutedHint': 'Commentary muted. Toggle AI: ON or open Pause to re-enable.',
+    'mascot.mood.smug': 'SMUG',
+    'mascot.mood.mocking': 'MOCKING',
+    'mascot.mood.bored': 'BORED',
+    'mascot.mood.malicious': 'MALICIOUS',
+    'mascot.mood.shocked': 'SHOCKED',
+    'mascot.mood.clap': 'CLAP',
 
     // Gameplay Callouts
     'callout.quick': 'QUICK!',
@@ -186,8 +201,23 @@ export const TRANSLATIONS = {
     'hud.pauseBtn': '暂停',
     'hud.muteOn': '声音',
     'hud.muteOff': '静音',
-    'hud.mascotSlot': 'Gemini AI 娘将在 Stage 5 登场',
     'hud.quickTip': '0.5秒内选向发射触发 QUICK! 抢跑加分与 +8% 充能',
+
+    // Mascot Panel (Gemini AI-chan)
+    'mascot.name': 'GEMINI AI 娘',
+    'mascot.role': '轨道观测 AI',
+    'mascot.controlsBtn': '键位说明',
+    'mascot.aiOn': '吐槽: 开',
+    'mascot.aiOff': '吐槽: 关',
+    'mascot.idleNormal': '正在记录珍贵的人类算力样本……',
+    'mascot.idleDanger': '内环濒危警戒，翻车日志已准备就绪……',
+    'mascot.mutedHint': 'AI 毒舌吐槽已静音，点击上方开关或暂停菜单可重新开启。',
+    'mascot.mood.smug': '腹黑笑',
+    'mascot.mood.mocking': '憋笑',
+    'mascot.mood.bored': '死鱼眼',
+    'mascot.mood.malicious': '暗中窃喜',
+    'mascot.mood.shocked': '破防',
+    'mascot.mood.clap': '看戏鼓掌',
 
     // Gameplay Callouts
     'callout.quick': '瞬发抢跑!',

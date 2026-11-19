@@ -2,7 +2,9 @@ import Phaser from 'phaser';
 import { FLOW_MULTIPLIERS } from '../core';
 import type { Difficulty, GameStateSnapshot } from '../core';
 import { t } from '../i18n/i18n';
+import type { AiChanExpression, AiChanSnapshot } from '../mascot';
 import { CANVAS_HEIGHT, CANVAS_WIDTH } from '../render/layout';
+import { getAiChanTextureKey, MOOD_ACCENT } from '../render/MascotRenderer';
 import type { HighScoreRecordResult } from '../storage/storage';
 import { createGlassButton } from './uiHelpers';
 import type { GlassButton } from './uiHelpers';
@@ -30,24 +32,33 @@ export class GameOverOverlay {
   private readonly switchDiffBtn: GlassButton;
   private readonly backTitleBtn: GlassButton;
 
+  private readonly roastContainer: Phaser.GameObjects.Container;
+  private readonly roastBgGraphics: Phaser.GameObjects.Graphics;
+  private readonly roastPortrait: Phaser.GameObjects.Image;
+  private readonly roastMaskGraphics: Phaser.GameObjects.Graphics;
+  private readonly roastHeaderText: Phaser.GameObjects.Text;
+  private readonly roastMoodText: Phaser.GameObjects.Text;
+  private readonly roastQuoteText: Phaser.GameObjects.Text;
+
   private openState = false;
   private lastSnapshot: GameStateSnapshot | null = null;
   private lastDifficulty: Difficulty = 'easy';
   private lastResult: HighScoreRecordResult | null = null;
+  private lastRoastExpression: AiChanExpression | null = null;
 
   private readonly rightOrigin: { x: number; y: number; w: number };
 
   constructor(scene: Phaser.Scene, callbacks: GameOverOverlayCallbacks) {
     this.scene = scene;
     const cx = CANVAS_WIDTH / 2;
-    const cy = CANVAS_HEIGHT / 2;
+    const cy = CANVAS_HEIGHT / 2 - 48; // 492
     const w = 1120;
-    const h = 680;
+    const h = 656;
     const left = cx - w / 2;
     const top = cy - h / 2;
 
     const backdrop = scene.add
-      .rectangle(cx, cy, CANVAS_WIDTH, CANVAS_HEIGHT, 0x04060f, 0.78)
+      .rectangle(cx, CANVAS_HEIGHT / 2, CANVAS_WIDTH, CANVAS_HEIGHT, 0x04060f, 0.78)
       .setInteractive();
 
     const cardBg = scene.add.graphics();
@@ -58,9 +69,9 @@ export class GameOverOverlay {
 
     // Inner column panels (relative to cardContainer center)
     const leftColX = -w / 2 + 42;
-    const colY = -h / 2 + 124;
+    const colY = -h / 2 + 114;
     const leftColW = 450;
-    const colH = 426;
+    const colH = 420;
     const rightColX = leftColX + leftColW + 32;
     const rightColW = w - 84 - leftColW - 32;
 
@@ -77,7 +88,7 @@ export class GameOverOverlay {
     this.rightOrigin = { x: rightColX, y: colY, w: rightColW };
 
     this.titleText = scene.add
-      .text(0, -h / 2 + 56, '', {
+      .text(0, -h / 2 + 52, '', {
         fontFamily: 'system-ui, -apple-system, Segoe UI, sans-serif',
         fontSize: '52px',
         fontStyle: 'bold',
@@ -86,7 +97,7 @@ export class GameOverOverlay {
       .setOrigin(0.5);
 
     this.newRecordBadge = scene.add
-      .text(280, -h / 2 + 56, '', {
+      .text(280, -h / 2 + 52, '', {
         fontFamily: 'ui-monospace, Consolas, monospace',
         fontSize: '20px',
         fontStyle: 'bold',
@@ -136,7 +147,7 @@ export class GameOverOverlay {
     });
     this.leaderboardRowsContainer = scene.add.container(0, 0);
 
-    const btnY = h / 2 - 58;
+    const btnY = h / 2 - 54;
     this.playAgainBtn = createGlassButton(
       scene,
       {
@@ -181,8 +192,57 @@ export class GameOverOverlay {
       this.backTitleBtn.container,
     ]);
 
+    // AI-chan closing roast strip below Game Over card
+    const roastW = w;
+    const roastH = 118;
+    const roastCenterY = 902;
+    const portraitRelX = -roastW / 2 + 72;
+    const portraitWorldX = cx + portraitRelX;
+
+    this.roastBgGraphics = scene.add.graphics();
+    this.roastPortrait = scene.add
+      .image(portraitRelX, 0, getAiChanTextureKey('clap'))
+      .setDisplaySize(92, 92);
+
+    this.roastMaskGraphics = scene.make.graphics({}, false);
+    this.roastMaskGraphics.fillStyle(0xffffff, 1);
+    this.roastMaskGraphics.fillRoundedRect(portraitWorldX - 46, roastCenterY - 46, 92, 92, 14);
+    this.roastPortrait.setMask(this.roastMaskGraphics.createGeometryMask());
+
+    this.roastHeaderText = scene.add.text(-roastW / 2 + 140, -34, '', {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, sans-serif',
+      fontSize: '18px',
+      fontStyle: 'bold',
+      color: '#67e8f9',
+    });
+
+    this.roastMoodText = scene.add.text(-roastW / 2 + 340, -33, '', {
+      fontFamily: 'ui-monospace, Consolas, monospace',
+      fontSize: '15px',
+      fontStyle: 'bold',
+      color: '#6ee7b7',
+    });
+
+    this.roastQuoteText = scene.add.text(-roastW / 2 + 140, -2, '', {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, sans-serif',
+      fontSize: '21px',
+      color: '#f8fafc',
+      wordWrap: { width: roastW - 180, useAdvancedWrap: true },
+    });
+
+    this.roastContainer = scene.add
+      .container(cx, roastCenterY, [
+        this.roastBgGraphics,
+        this.roastPortrait,
+        this.roastHeaderText,
+        this.roastMoodText,
+        this.roastQuoteText,
+      ])
+      .setVisible(false);
+    this.drawRoastBg('clap', roastW, roastH);
+
     this.container = scene.add
-      .container(0, 0, [backdrop, this.cardContainer])
+      .container(0, 0, [backdrop, this.cardContainer, this.roastContainer])
       .setDepth(45)
       .setVisible(false);
   }
@@ -257,7 +317,46 @@ export class GameOverOverlay {
     this.rebuildLeaderboard();
   }
 
+  updateMascot(snapshot: AiChanSnapshot): void {
+    if (!this.openState || !snapshot.enabled || !snapshot.bubble) {
+      this.roastContainer.setVisible(false);
+      return;
+    }
+
+    this.roastContainer.setVisible(true);
+    this.roastContainer.setAlpha(snapshot.bubble.alpha);
+
+    if (this.lastRoastExpression !== snapshot.expression) {
+      this.lastRoastExpression = snapshot.expression;
+      const key = getAiChanTextureKey(snapshot.expression);
+      if (this.scene.textures.exists(key)) {
+        this.roastPortrait.setTexture(key);
+        this.roastPortrait.setDisplaySize(92, 92);
+      }
+      this.drawRoastBg(snapshot.expression, 1120, 118);
+    }
+
+    const accent = MOOD_ACCENT[snapshot.expression];
+    this.roastHeaderText.setText(t('mascot.name')).setColor(accent.css);
+    const moodKey = `mascot.mood.${snapshot.expression}` as const;
+    this.roastMoodText
+      .setText(`[${t(moodKey)}]`)
+      .setColor(accent.css)
+      .setX(this.roastHeaderText.x + this.roastHeaderText.width + 14);
+    this.roastQuoteText.setText(snapshot.bubble.text);
+  }
+
+  private drawRoastBg(expression: AiChanExpression, w: number, h: number): void {
+    const accent = MOOD_ACCENT[expression];
+    this.roastBgGraphics.clear();
+    this.roastBgGraphics.fillStyle(0x0f172a, 0.95);
+    this.roastBgGraphics.fillRoundedRect(-w / 2, -h / 2, w, h, 20);
+    this.roastBgGraphics.lineStyle(2, accent.hex, 0.78);
+    this.roastBgGraphics.strokeRoundedRect(-w / 2, -h / 2, w, h, 20);
+  }
+
   destroy(): void {
+    this.roastMaskGraphics.destroy();
     this.container.destroy(true);
   }
 
