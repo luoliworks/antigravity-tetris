@@ -397,3 +397,90 @@ export function isDangerState(board: BoardGrid): boolean {
   }
   return false;
 }
+
+export interface RingFillStatus {
+  ring: RingIndex;
+  filled: number;
+  total: number;
+  ratio: number;
+  missing: GridPos[];
+}
+
+export function getBestRingProgress(board: BoardGrid): RingFillStatus | null {
+  let best: RingFillStatus | null = null;
+
+  for (const ring of RING_INDICES) {
+    const cells = getRingCells(ring);
+    const missing: GridPos[] = [];
+    for (const pos of cells) {
+      if (board[pos.r][pos.c] === null) {
+        missing.push(pos);
+      }
+    }
+    const total = cells.length;
+    const filled = total - missing.length;
+    if (filled === 0) {
+      continue;
+    }
+    const ratio = filled / total;
+    const candidate: RingFillStatus = { ring, filled, total, ratio, missing };
+
+    if (!best) {
+      best = candidate;
+      continue;
+    }
+    const diff = ratio - best.ratio;
+    if (
+      diff > 1e-9 ||
+      (Math.abs(diff) <= 1e-9 &&
+        (missing.length < best.missing.length ||
+          (missing.length === best.missing.length && ring > best.ring)))
+    ) {
+      best = candidate;
+    }
+  }
+
+  return best;
+}
+
+export function findNearFullLineGaps(board: BoardGrid, maxMissing = 2): GridPos[] {
+  const gapsByKey = new Map<string, GridPos>();
+
+  const recordIfNearFull = (gaps: GridPos[]) => {
+    if (gaps.length >= 1 && gaps.length <= maxMissing) {
+      for (const pos of gaps) {
+        gapsByKey.set(`${pos.r},${pos.c}`, pos);
+      }
+    }
+  };
+
+  for (let r = 0; r < BOARD_SIZE; r++) {
+    if (r >= CENTER_MIN && r <= CENTER_MAX) {
+      continue;
+    }
+    const rowGaps: GridPos[] = [];
+    for (let c = 0; c < BOARD_SIZE; c++) {
+      if (board[r][c] === null) {
+        rowGaps.push({ r, c });
+        if (rowGaps.length > maxMissing) break;
+      }
+    }
+    recordIfNearFull(rowGaps);
+  }
+
+  for (let c = 0; c < BOARD_SIZE; c++) {
+    if (c >= CENTER_MIN && c <= CENTER_MAX) {
+      continue;
+    }
+    const colGaps: GridPos[] = [];
+    for (let r = 0; r < BOARD_SIZE; r++) {
+      if (board[r][c] === null) {
+        colGaps.push({ r, c });
+        if (colGaps.length > maxMissing) break;
+      }
+    }
+    recordIfNearFull(colGaps);
+  }
+
+  return Array.from(gapsByKey.values());
+}

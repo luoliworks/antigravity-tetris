@@ -105,6 +105,27 @@ export function calculateLevel(ringsCleared: number): number {
   return calculateLevelFromClears(0, ringsCleared);
 }
 
+export interface LevelProgressInfo {
+  level: number;
+  currentPoints: number;
+  requiredPoints: number;
+  ratio: number;
+}
+
+export function getLevelProgress(linesCleared: number, ringsCleared: number): LevelProgressInfo {
+  const pts =
+    Math.max(0, Math.floor(linesCleared)) + Math.max(0, Math.floor(ringsCleared)) * 3;
+  const level = calculateLevelFromClears(linesCleared, ringsCleared);
+  const currentPoints = pts < 24 ? pts % 6 : (pts - 24) % 9;
+  const requiredPoints = pts < 24 ? 6 : 9;
+  return {
+    level,
+    currentPoints,
+    requiredPoints,
+    ratio: currentPoints / requiredPoints,
+  };
+}
+
 export function getLevelConfig(level: number): LevelConfig {
   const safeLevel = Math.max(1, Math.floor(level));
   if (safeLevel <= 2) {

@@ -1,5 +1,10 @@
 import Phaser from 'phaser';
-import { FLOW_MULTIPLIERS, getLocalPieceCells } from '../core';
+import {
+  FLOW_MULTIPLIERS,
+  getBestRingProgress,
+  getLevelProgress,
+  getLocalPieceCells,
+} from '../core';
 import type { Difficulty, GameStateSnapshot, PieceKind } from '../core';
 import { HUD_PANEL, MASCOT_PANEL } from './layout';
 import { drawCrystalCell } from './pieceColors';
@@ -11,22 +16,28 @@ export interface HudCallbacks {
 }
 
 export class HudRenderer {
+  private readonly scene: Phaser.Scene;
   private readonly callbacks: HudCallbacks;
   private readonly previewGraphics: Phaser.GameObjects.Graphics;
   private readonly chargeBarGraphics: Phaser.GameObjects.Graphics;
+  private readonly levelBarGraphics: Phaser.GameObjects.Graphics;
   private readonly modePillBg: Phaser.GameObjects.Graphics;
 
   private readonly modeText: Phaser.GameObjects.Text;
   private readonly scoreValueText: Phaser.GameObjects.Text;
   private readonly levelValueText: Phaser.GameObjects.Text;
+  private readonly levelProgressText: Phaser.GameObjects.Text;
   private readonly linesValueText: Phaser.GameObjects.Text;
   private readonly ringsValueText: Phaser.GameObjects.Text;
   private readonly flowBadgeText: Phaser.GameObjects.Text;
   private readonly quickBadgeText: Phaser.GameObjects.Text;
+  private readonly bestRingBadgeText: Phaser.GameObjects.Text;
   private readonly holdHintText: Phaser.GameObjects.Text;
   private readonly chargeLabelText: Phaser.GameObjects.Text;
   private readonly chargePctText: Phaser.GameObjects.Text;
 
+  private readonly scorePopupAnchor: { x: number; y: number };
+  private readonly levelBarPos: { x: number; y: number; w: number; h: number };
   private readonly nextBoxCenter: { x: number; y: number };
   private readonly holdBoxCenter: { x: number; y: number };
   private readonly chargeRect: { x: number; y: number; w: number; h: number };
@@ -34,6 +45,7 @@ export class HudRenderer {
   private pulseMs = 0;
 
   constructor(scene: Phaser.Scene, callbacks: HudCallbacks) {
+    this.scene = scene;
     this.callbacks = callbacks;
 
     const px = HUD_PANEL.x;
@@ -150,18 +162,35 @@ export class HudRenderer {
       color: '#c4b5fd',
     });
 
-    this.flowBadgeText = scene.add.text(px + 28, statsY + 78, 'FLOW x1.0', {
+    this.scorePopupAnchor = { x: px + 188, y: statsY + 26 };
+    this.levelBarPos = { x: px + 314, y: statsY + 67, w: 96, h: 6 };
+    this.levelBarGraphics = scene.add.graphics();
+    this.levelProgressText = scene.add.text(px + 416, statsY + 61, '0/6', {
       fontFamily: 'ui-monospace, Consolas, monospace',
-      fontSize: '18px',
+      fontSize: '13px',
+      color: '#94a3b8',
+    });
+
+    this.flowBadgeText = scene.add.text(px + 28, statsY + 86, 'FLOW x1.0', {
+      fontFamily: 'ui-monospace, Consolas, monospace',
+      fontSize: '17px',
       fontStyle: 'bold',
       color: '#64748b',
     });
-    this.quickBadgeText = scene.add.text(px + 220, statsY + 78, '', {
+    this.quickBadgeText = scene.add.text(px + 245, statsY + 86, '', {
       fontFamily: 'ui-monospace, Consolas, monospace',
-      fontSize: '18px',
+      fontSize: '17px',
       fontStyle: 'bold',
       color: '#facc15',
     });
+    this.bestRingBadgeText = scene.add
+      .text(px + pw - 28, statsY + 86, '', {
+        fontFamily: 'ui-monospace, Consolas, monospace',
+        fontSize: '17px',
+        fontStyle: 'bold',
+        color: '#e879f9',
+      })
+      .setOrigin(1, 0);
 
     // NEXT & HOLD boxes
     const boxY = py + 198;
@@ -240,6 +269,29 @@ export class HudRenderer {
     this.drawControlsPanel(scene);
   }
 
+  showScoreDelta(delta: number, color = '#67e8f9'): void {
+    if (delta <= 0) return;
+    const text = this.scene.add
+      .text(this.scorePopupAnchor.x, this.scorePopupAnchor.y, `+${delta.toLocaleString()}`, {
+        fontFamily: 'ui-monospace, Consolas, monospace',
+        fontSize: '20px',
+        fontStyle: 'bold',
+        color,
+        stroke: '#070914',
+        strokeThickness: 4,
+      })
+      .setDepth(25);
+
+    this.scene.tweens.add({
+      targets: text,
+      y: this.scorePopupAnchor.y - 24,
+      alpha: 0,
+      duration: 700,
+      ease: 'Cubic.easeOut',
+      onComplete: () => text.destroy(),
+    });
+  }
+
   render(state: GameStateSnapshot, dtMs = 16): void {
     this.pulseMs += dtMs;
     this.drawDifficultyPill(state.difficulty);
@@ -248,6 +300,29 @@ export class HudRenderer {
     this.levelValueText.setText(String(state.level));
     this.linesValueText.setText(String(state.linesCleared));
     this.ringsValueText.setText(String(state.ringsCleared));
+
+    // Level progress mini-bar
+    const lvlInfo = getLevelProgress(state.linesCleared, state.ringsCleared);
+    this.levelBarGraphics.clear();
+    this.levelBarGraphics.fillStyle(0x1e293b, 0.9);
+    this.levelBarGraphics.fillRoundedRect(
+      this.levelBarPos.x,
+      this.levelBarPos.y,
+      this.levelBarPos.w,
+      this.levelBarPos.h,
+      3,
+    );
+    if (lvlInfo.ratio > 0) {
+      this.levelBarGraphics.fillStyle(0x67e8f9, 0.9);
+      this.levelBarGraphics.fillRoundedRect(
+        this.levelBarPos.x,
+        this.levelBarPos.y,
+        Math.max(4, Math.round(this.levelBarPos.w * lvlInfo.ratio)),
+        this.levelBarPos.h,
+        3,
+      );
+    }
+    this.levelProgressText.setText(`${lvlInfo.currentPoints}/${lvlInfo.requiredPoints}`);
 
     const mult = FLOW_MULTIPLIERS[state.flowCombo] ?? 1.0;
     if (state.flowCombo > 0) {
@@ -259,9 +334,16 @@ export class HudRenderer {
     }
 
     if (state.quickStreak >= 2) {
-      this.quickBadgeText.setText(`QUICK! STREAK x${state.quickStreak}`);
+      this.quickBadgeText.setText(`QUICK! x${state.quickStreak}`);
     } else {
       this.quickBadgeText.setText('');
+    }
+
+    const bestRing = getBestRingProgress(state.board);
+    if (bestRing && bestRing.ratio >= 0.5) {
+      this.bestRingBadgeText.setText(`RING ${bestRing.ring}: ${bestRing.filled}/${bestRing.total}`);
+    } else {
+      this.bestRingBadgeText.setText('');
     }
 
     // Draw NEXT and HOLD previews

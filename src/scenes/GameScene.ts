@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
-import { GameEngine } from '../core';
-import type { Difficulty, GameEvent } from '../core';
+import { GameEngine, getPieceCells } from '../core';
+import type { Difficulty, GameEvent, GridPos } from '../core';
 import { InputManager } from '../input/InputManager';
 import { BoardRenderer } from '../render/BoardRenderer';
 import { HudRenderer } from '../render/HudRenderer';
@@ -11,6 +11,8 @@ export class GameScene extends Phaser.Scene {
   private boardRenderer!: BoardRenderer;
   private hudRenderer!: HudRenderer;
   private inputManager!: InputManager;
+  private currentFlightIsQuick = false;
+  private lastQuickTrailCells: GridPos[] = [];
 
   constructor() {
     super({ key: 'GameScene' });
@@ -84,6 +86,9 @@ export class GameScene extends Phaser.Scene {
     }
     this.engine = new GameEngine({ difficulty: this.difficulty });
     this.inputManager.resetFlightHolds();
+    this.boardRenderer.clearAnimations();
+    this.currentFlightIsQuick = false;
+    this.lastQuickTrailCells = [];
 
     if (difficultyChanged) {
       this.boardRenderer.showCallout(
@@ -98,23 +103,59 @@ export class GameScene extends Phaser.Scene {
       switch (ev.type) {
         case 'PIECE_SPAWNED':
           this.inputManager.resetFlightHolds();
+          this.currentFlightIsQuick = false;
+          this.lastQuickTrailCells = [];
           break;
 
         case 'PIECE_LAUNCHED':
           this.inputManager.resetFlightHolds();
+          this.currentFlightIsQuick = ev.isQuick;
+          this.lastQuickTrailCells = getPieceCells(
+            ev.piece.kind,
+            ev.piece.rotation,
+            ev.piece.origin,
+          );
           if (ev.isQuick) {
             this.boardRenderer.showCallout(
               ev.quickStreak >= 2 ? `QUICK! x${ev.quickStreak}` : 'QUICK!',
               '#facc15',
             );
+            this.hudRenderer.showScoreDelta(ev.scoreDelta, '#facc15');
           } else if (ev.blind) {
             this.boardRenderer.showCallout('BLIND SHOT!', '#fb7185');
+          }
+          break;
+
+        case 'PIECE_MOVED':
+          if (this.currentFlightIsQuick) {
+            if (this.lastQuickTrailCells.length > 0) {
+              this.boardRenderer.recordQuickTrail(this.lastQuickTrailCells);
+            }
+            this.lastQuickTrailCells = getPieceCells(
+              ev.piece.kind,
+              ev.piece.rotation,
+              ev.piece.origin,
+            );
+          }
+          break;
+
+        case 'PIECE_LOCKED':
+          this.currentFlightIsQuick = false;
+          this.lastQuickTrailCells = [];
+          if (ev.scoreDelta > 0) {
+            this.hudRenderer.showScoreDelta(ev.scoreDelta, '#94a3b8');
+          }
+          if (ev.kind === 'STARDUST_PIERCER' && ev.placed.length > 0) {
+            this.boardRenderer.triggerRingFlash(ev.placed, 0xf0abfc);
+            this.boardRenderer.showCallout('SNIPED!', '#f0abfc');
           }
           break;
 
         case 'RINGS_CLEARED': {
           const flashColor = ev.rings.length >= 2 ? 0xf0abfc : 0xe0f2fe;
           this.boardRenderer.triggerRingFlash(ev.clearedCells, flashColor);
+          this.boardRenderer.triggerCellMovements(ev.movements);
+          this.hudRenderer.showScoreDelta(ev.scoreDelta, '#f0abfc');
 
           if (ev.isAllClear) {
             this.boardRenderer.showCallout('ALL CLEAR!', '#fef08a');
@@ -131,12 +172,17 @@ export class GameScene extends Phaser.Scene {
             const color = ev.rings.length >= 2 ? '#f0abfc' : '#67e8f9';
             this.boardRenderer.showCallout(label, color);
           }
+          if (ev.leveledUp) {
+            this.boardRenderer.showCallout(`LEVEL UP! LV ${ev.newLevel}`, '#67e8f9', 54);
+          }
           break;
         }
 
         case 'LINES_CLEARED': {
           const flashColor = ev.lineCount >= 2 ? 0xfacc15 : 0x38bdf8;
           this.boardRenderer.triggerRingFlash(ev.clearedCells, flashColor);
+          this.boardRenderer.triggerCellMovements(ev.movements);
+          this.hudRenderer.showScoreDelta(ev.scoreDelta, '#38bdf8');
 
           if (ev.isAllClear) {
             this.boardRenderer.showCallout('ALL CLEAR!', '#fef08a');
@@ -155,11 +201,19 @@ export class GameScene extends Phaser.Scene {
             const color = ev.lineCount >= 2 ? '#facc15' : '#38bdf8';
             this.boardRenderer.showCallout(label, color);
           }
+          if (ev.leveledUp) {
+            this.boardRenderer.showCallout(`LEVEL UP! LV ${ev.newLevel}`, '#67e8f9', 54);
+          }
           break;
         }
 
         case 'NOVA_DETONATED':
-          this.boardRenderer.triggerRingFlash(ev.destroyed, 0xfb7185);
+          this.currentFlightIsQuick = false;
+          this.lastQuickTrailCells = [];
+          this.boardRenderer.triggerNovaBlast(ev.center);
+          if (ev.scoreDelta > 0) {
+            this.hudRenderer.showScoreDelta(ev.scoreDelta, '#fda4af');
+          }
           this.boardRenderer.showCallout('NOVA BOOM!', '#fda4af');
           break;
 

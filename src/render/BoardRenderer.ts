@@ -4,12 +4,21 @@ import {
   CENTER_MIN,
   DIR_VECTORS,
   DIRECTIONS_8,
+  findNearFullLineGaps,
+  getBestRingProgress,
   getPieceCells,
   getRingIndex,
   inBounds,
   isInCenter,
 } from '../core';
-import type { Direction8, GameStateSnapshot, GhostPlacement, GridPos, RingIndex } from '../core';
+import type {
+  CellMovement,
+  Direction8,
+  GameStateSnapshot,
+  GhostPlacement,
+  GridPos,
+  RingIndex,
+} from '../core';
 import {
   BOARD_CENTER_X,
   BOARD_CENTER_Y,
@@ -28,6 +37,23 @@ interface FlashCell {
   pos: GridPos;
   elapsedMs: number;
   durationMs: number;
+  color: number;
+}
+
+interface ShiftAnim {
+  from: GridPos;
+  to: GridPos;
+  elapsedMs: number;
+  delayMs: number;
+  durationMs: number;
+}
+
+interface ShockwaveAnim {
+  cx: number;
+  cy: number;
+  elapsedMs: number;
+  durationMs: number;
+  maxRadius: number;
   color: number;
 }
 
@@ -51,6 +77,9 @@ export class BoardRenderer {
   private readonly gameOverStatsText: Phaser.GameObjects.Text;
 
   private readonly flashes: FlashCell[] = [];
+  private readonly quickTrails: FlashCell[] = [];
+  private readonly activeShifts = new Map<number, ShiftAnim>();
+  private readonly shockwaves: ShockwaveAnim[] = [];
   private dangerPulseMs = 0;
 
   constructor(scene: Phaser.Scene) {
@@ -128,6 +157,13 @@ export class BoardRenderer {
     this.gameOverGroup.setDepth(30).setVisible(false);
   }
 
+  clearAnimations(): void {
+    this.flashes.length = 0;
+    this.quickTrails.length = 0;
+    this.activeShifts.clear();
+    this.shockwaves.length = 0;
+  }
+
   triggerRingFlash(cells: { pos: GridPos }[], color = 0xe0f2fe): void {
     for (const item of cells) {
       this.flashes.push({
@@ -139,9 +175,62 @@ export class BoardRenderer {
     }
   }
 
-  showCallout(label: string, color = '#67e8f9'): void {
+  triggerCellMovements(movements: CellMovement[]): void {
+    for (const m of movements) {
+      const existing = this.activeShifts.get(m.cell.id);
+      if (existing) {
+        existing.to = { ...m.to };
+      } else {
+        this.activeShifts.set(m.cell.id, {
+          from: { ...m.from },
+          to: { ...m.to },
+          elapsedMs: 0,
+          delayMs: 90,
+          durationMs: 180,
+        });
+      }
+    }
+  }
+
+  triggerNovaBlast(center: GridPos): void {
+    for (let dr = -1; dr <= 1; dr++) {
+      for (let dc = -1; dc <= 1; dc++) {
+        const r = center.r + dr;
+        const c = center.c + dc;
+        if (!inBounds(r, c)) continue;
+        this.flashes.push({
+          pos: { r, c },
+          elapsedMs: 0,
+          durationMs: 280,
+          color: 0xfb7185,
+        });
+      }
+    }
+    const { x, y } = cellCenterToPixel(center.r, center.c);
+    this.shockwaves.push({
+      cx: x,
+      cy: y,
+      elapsedMs: 0,
+      durationMs: 340,
+      maxRadius: CELL_SIZE * 2.1,
+      color: 0xfef08a,
+    });
+  }
+
+  recordQuickTrail(cells: GridPos[]): void {
+    for (const pos of cells) {
+      this.quickTrails.push({
+        pos: { ...pos },
+        elapsedMs: 0,
+        durationMs: 240,
+        color: 0xfacc15,
+      });
+    }
+  }
+
+  showCallout(label: string, color = '#67e8f9', yOffset = 0): void {
     const text = this.scene.add
-      .text(BOARD_CENTER_X, BOARD_Y + 86, label, {
+      .text(BOARD_CENTER_X, BOARD_Y + 86 + yOffset, label, {
         fontFamily: 'system-ui, -apple-system, Segoe UI, sans-serif',
         fontSize: '38px',
         fontStyle: 'bold',
@@ -154,7 +243,7 @@ export class BoardRenderer {
 
     this.scene.tweens.add({
       targets: text,
-      y: BOARD_Y + 42,
+      y: BOARD_Y + 42 + yOffset,
       alpha: 0,
       scale: 1.12,
       duration: 850,
@@ -195,14 +284,77 @@ export class BoardRenderer {
       );
     }
 
-    // 2. Settled board blocks
+    // 2. Advance shift animations & render settled board blocks
+    for (const [id, shift] of this.activeShifts.entries()) {
+      shift.elapsedMs += dtMs;
+      if (shift.elapsedMs >= shift.delayMs + shift.durationMs) {
+        this.activeShifts.delete(id);
+      }
+    }
+
     for (let r = 0; r < BOARD_SIZE; r++) {
       for (let c = 0; c < BOARD_SIZE; c++) {
         const cell = state.board[r][c];
         if (!cell) continue;
-        const { x, y } = cellToPixel(r, c);
-        drawCrystalCell(this.boardGraphics, x, y, CELL_SIZE, cell.kind, 1);
+        const shift = this.activeShifts.get(cell.id);
+        if (shift) {
+          const fromPx = cellToPixel(shift.from.r, shift.from.c);
+          const toPx = cellToPixel(shift.to.r, shift.to.c);
+          let t = 0;
+          if (shift.elapsedMs > shift.delayMs) {
+            const u = Math.min(1, (shift.elapsedMs - shift.delayMs) / shift.durationMs);
+            t = 1 - Math.pow(1 - u, 3);
+          }
+          const drawX = fromPx.x + (toPx.x - fromPx.x) * t;
+          const drawY = fromPx.y + (toPx.y - fromPx.y) * t;
+          drawCrystalCell(this.boardGraphics, drawX, drawY, CELL_SIZE, cell.kind, 1);
+        } else {
+          const { x, y } = cellToPixel(r, c);
+          drawCrystalCell(this.boardGraphics, x, y, CELL_SIZE, cell.kind, 1);
+        }
       }
+    }
+
+    // 2b. Near-complete line & ring gap shimmer indicators
+    const shimmer = 0.25 + 0.25 * Math.sin(this.dangerPulseMs * 0.008);
+    const lineGaps = findNearFullLineGaps(state.board, 2);
+    for (const pos of lineGaps) {
+      const { x, y } = cellToPixel(pos.r, pos.c);
+      this.boardGraphics.lineStyle(1.5, 0x38bdf8, shimmer);
+      this.boardGraphics.strokeRoundedRect(x + 8, y + 8, CELL_SIZE - 16, CELL_SIZE - 16, 6);
+    }
+
+    const bestRing = getBestRingProgress(state.board);
+    if (bestRing && bestRing.ratio >= 0.75 && bestRing.missing.length > 0) {
+      const ringAlpha = 0.3 + 0.22 * Math.sin(this.dangerPulseMs * 0.01);
+      for (const pos of bestRing.missing) {
+        const { x, y } = cellCenterToPixel(pos.r, pos.c);
+        const d = 10;
+        this.boardGraphics.lineStyle(2, 0xe879f9, ringAlpha);
+        this.boardGraphics.strokePoints(
+          [
+            { x, y: y - d },
+            { x: x + d, y },
+            { x, y: y + d },
+            { x: x - d, y },
+          ],
+          true,
+        );
+      }
+    }
+
+    // 2c. QUICK! golden flight afterimages
+    for (let i = this.quickTrails.length - 1; i >= 0; i--) {
+      const tr = this.quickTrails[i];
+      tr.elapsedMs += dtMs;
+      if (tr.elapsedMs >= tr.durationMs) {
+        this.quickTrails.splice(i, 1);
+        continue;
+      }
+      const alpha = (1 - tr.elapsedMs / tr.durationMs) * 0.42;
+      const { x, y } = cellToPixel(tr.pos.r, tr.pos.c);
+      this.boardGraphics.fillStyle(tr.color, alpha);
+      this.boardGraphics.fillRoundedRect(x + 6, y + 6, CELL_SIZE - 12, CELL_SIZE - 12, 8);
     }
 
     // 3. Ghost sightline and target outline
@@ -222,6 +374,22 @@ export class BoardRenderer {
         drawCrystalCell(this.boardGraphics, x, y, CELL_SIZE, state.activePiece.kind, 1);
       }
 
+      // Stardust Piercer mid-flight manual lock cue over valid empty outer hole
+      if (
+        state.activePiece.kind === 'STARDUST_PIERCER' &&
+        (state.phase === 'FLIGHT' || state.phase === 'LOCK_DELAY') &&
+        !isInCenter(state.activePiece.origin.r, state.activePiece.origin.c) &&
+        state.board[state.activePiece.origin.r][state.activePiece.origin.c] === null
+      ) {
+        const { x, y } = cellCenterToPixel(
+          state.activePiece.origin.r,
+          state.activePiece.origin.c,
+        );
+        const cueAlpha = 0.65 + 0.35 * Math.sin(this.dangerPulseMs * 0.02);
+        this.boardGraphics.lineStyle(3, 0x10b981, cueAlpha);
+        this.boardGraphics.strokeCircle(x, y, CELL_SIZE * 0.44);
+      }
+
       if (state.phase === 'LOCK_DELAY') {
         const ratio = Math.min(1, state.lockDelayElapsedMs / state.lockDelayDurationMs);
         this.boardGraphics.lineStyle(3, 0xffffff, 0.45 + 0.5 * (1 - ratio));
@@ -237,7 +405,7 @@ export class BoardRenderer {
       this.renderHoverCompass(state);
     }
 
-    // 6. Active ring clear / nova flash cells
+    // 6. Active ring clear / nova flash cells & expanding shockwaves
     for (let i = this.flashes.length - 1; i >= 0; i--) {
       const f = this.flashes[i];
       f.elapsedMs += dtMs;
@@ -249,6 +417,20 @@ export class BoardRenderer {
       const { x, y } = cellToPixel(f.pos.r, f.pos.c);
       this.overlayGraphics.fillStyle(f.color, alpha);
       this.overlayGraphics.fillRoundedRect(x + 2, y + 2, CELL_SIZE - 4, CELL_SIZE - 4, 8);
+    }
+
+    for (let i = this.shockwaves.length - 1; i >= 0; i--) {
+      const sw = this.shockwaves[i];
+      sw.elapsedMs += dtMs;
+      if (sw.elapsedMs >= sw.durationMs) {
+        this.shockwaves.splice(i, 1);
+        continue;
+      }
+      const progress = sw.elapsedMs / sw.durationMs;
+      const radius = CELL_SIZE * 0.3 + (sw.maxRadius - CELL_SIZE * 0.3) * (1 - Math.pow(1 - progress, 2));
+      const alpha = (1 - progress) * 0.85;
+      this.overlayGraphics.lineStyle(4 * (1 - progress) + 1.5, sw.color, alpha);
+      this.overlayGraphics.strokeCircle(sw.cx, sw.cy, radius);
     }
 
     // 7. Intro 3-2-1 countdown
@@ -319,12 +501,29 @@ export class BoardRenderer {
     }
 
     if (piece.kind === 'STARDUST_PIERCER') {
+      // Glowing cyan-magenta piercing beam along ray path
+      if (ghost.path.length > 1) {
+        this.boardGraphics.lineStyle(6, 0x38bdf8, 0.28);
+        for (let i = 0; i < ghost.path.length - 1; i++) {
+          const a = cellCenterToPixel(ghost.path[i].r, ghost.path[i].c);
+          const b = cellCenterToPixel(ghost.path[i + 1].r, ghost.path[i + 1].c);
+          this.boardGraphics.lineBetween(a.x, a.y, b.x, b.y);
+        }
+        this.boardGraphics.lineStyle(2.5, 0xf0abfc, 0.88);
+        for (let i = 0; i < ghost.path.length - 1; i++) {
+          const a = cellCenterToPixel(ghost.path[i].r, ghost.path[i].c);
+          const b = cellCenterToPixel(ghost.path[i + 1].r, ghost.path[i + 1].c);
+          this.boardGraphics.lineBetween(a.x, a.y, b.x, b.y);
+        }
+      }
+
       const target = ghost.finalPiece.origin;
       const { x, y } = cellToPixel(target.r, target.c);
       const cx = x + CELL_SIZE / 2;
       const cy = y + CELL_SIZE / 2;
       const halfCross = Math.round(CELL_SIZE * 0.38);
-      const reticleColor = ghost.targetValid ? 0xf0abfc : 0xf43f5e;
+      const noOuterHole = isInCenter(target.r, target.c) || !ghost.targetValid;
+      const reticleColor = noOuterHole ? 0xf43f5e : 0xf0abfc;
       this.boardGraphics.fillStyle(reticleColor, 0.24);
       this.boardGraphics.fillRoundedRect(x + 5, y + 5, CELL_SIZE - 10, CELL_SIZE - 10, 8);
       this.boardGraphics.lineStyle(3, reticleColor, 0.9);
