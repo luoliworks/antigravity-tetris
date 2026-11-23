@@ -13,10 +13,11 @@ An arcade puzzle web game built with **Phaser 3 + Vite + TypeScript + Vitest**: 
 - **16 × 16 Center 8-Way Launch & 3-Way Wall-Slide**
   - Pieces spawn in the central `4 × 4` core. While hovering, freely aim in 8 directions (`↑ ↓ ← → ↖ ↗ ↙ ↘`) and apply SRS rotation, with a real-time outer **Ghost Piece** projecting the exact landing spot after diagonal travel and wall-sliding.
   - Supports mid-flight nudging and acceleration, 3-way wall-sliding on impact with a `0.25s` lock grace period, and a **`QUICK!`** bonus (`+8%` charge) when launching within `0.5s` of spawn.
-- **Concentric Ring Priority + 4-Way Line Clear Hybrid**
-  - **Concentric Ring Jackpot**: Filling any one or more of rings 1–6 (from 60 outer cells to 20 inner cells) triggers a ring burst. Remaining inner blocks (including those protruding into the center) expand outward in 8 directions—with 45° corner ejection to prevent dead-end lockups.
+- **Concentric Ring Priority + 4-Way Line Clear + 4-Side Resonance Hybrid**
+  - **Concentric Ring Jackpot**: Filling any inner ring (rings 2–6) directly triggers a ring burst. Remaining inner blocks (including those protruding into the center) expand outward in 8 directions—with 45° corner ejection to prevent dead-end lockups.
   - **4-Way Instant Line Clear & Cross Clear**: Filling any outer 16-cell row or column clears it immediately and collapses that half-board toward its corresponding outer wall; completing both a row and column simultaneously triggers a `Cross Clear`.
-  - **Clears Take Priority Over Game Over**: Post-lock ring/line clears and outward expansion/collapse always resolve before the Game Over check, enabling clutch last-second saves.
+  - **4-Side Ring Resonance (`RING RESONANCE!`)**: Clearing North, South, West, and East lines lights up the corresponding neon board edges (`4/4`). Lighting all 4 edges sweeps Ring 1 (clearing all remaining outer-ring blocks), expands inner cells outward in 8 directions, awards `1,200 × Level × Flow` + **`+35%` Charge**, and resets the edges for the next cycle.
+  - **Clears Take Priority Over Game Over**: Post-lock direct ring clears, line clears, and 4-Side Resonance expansion always resolve before the Game Over check, enabling clutch last-second saves.
 - **Dual Difficulties & Star Core Rescue System (`Charge = 100%`)**
   - **`EASY` · Nova Bomb (`3×3` Blast)**: Explodes a `3 × 3` area upon hitting the first obstacle or outer wall.
   - **`HARD` · Stardust Piercer (`1×1` Piercing Shot)**: Pierces straight through solid blocks along an 8-way ray toward the outermost gap, and can be manually locked mid-flight over any outer empty cell by pressing Launch/Hard Drop.
@@ -47,7 +48,7 @@ npm install
 # Start the local dev server and play in your browser
 npm run dev
 
-# Run the full unit test suite (10 test files / 59 tests)
+# Run the full unit test suite (10 test files / 64 tests)
 npm test
 
 # TypeScript type-check + production build (outputs to dist/)

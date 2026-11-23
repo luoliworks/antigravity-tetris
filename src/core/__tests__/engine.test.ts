@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
   createEmptyBoard,
+  FLOW_MULTIPLIERS,
   GameEngine,
   getLevelConfig,
   getRingCells,
   INTRO_DURATION_MS,
   LOCK_DELAY_MS,
+  OUTER_RING_BONUS_MULTIPLIER,
+  RING_CLEAR_BASE_SCORES,
+  RING_RESONANCE_CHARGE,
 } from '../index';
 import type { BoardGrid, PieceKind, RingIndex } from '../types';
 
@@ -602,5 +606,288 @@ describe('GameEngine (16x16)', () => {
     expect(eClutch.getState().phase).toBe('HOVER');
     expect(eClutch.getState().board[9][8]).toBeNull();
     expect(eClutch.getState().board[10][8]).not.toBeNull();
+  });
+});
+
+describe('4-Side Ring Resonance', () => {
+  function launchPastQuick(
+    engine: GameEngine,
+    dir: 'N' | 'E' | 'S' | 'W' | 'NE',
+    rotateDelta?: 1 | -1,
+  ): void {
+    engine.tick(600);
+    if (rotateDelta) {
+      engine.rotate(rotateDelta);
+    }
+    engine.setAimDirection(dir);
+    engine.launchOrHardDrop();
+    engine.launchOrHardDrop();
+  }
+
+  it('lights N/S/E/W edges sequentially, ignores repeat sides, and triggers Ring 1 Resonance sweep on the 4th side', () => {
+    const b = createEmptyBoard();
+    // 2 North rows (missing c=7)
+    for (let c = 0; c < 16; c++) {
+      if (c !== 7) {
+        b[0][c] = { kind: 'O', id: 100 + c };
+        b[1][c] = { kind: 'O', id: 120 + c };
+      }
+    }
+    // 1 South row (missing c=8)
+    for (let c = 0; c < 16; c++) {
+      if (c !== 8) {
+        b[15][c] = { kind: 'O', id: 140 + c };
+      }
+    }
+    // East col 15: after 2 N clears + 1 S clear, r=6..9 are empty for vertical 'I'
+    for (let r = 2; r <= 7; r++) b[r][15] = { kind: 'J', id: 160 + r };
+    for (let r = 9; r <= 14; r++) b[r][15] = { kind: 'J', id: 170 + r };
+    // West col 0: after 2 N + 1 S clears, r=6..9 are empty for vertical 'I'
+    for (let r = 2; r <= 7; r++) b[r][0] = { kind: 'L', id: 180 + r };
+    for (let r = 9; r <= 14; r++) b[r][0] = { kind: 'L', id: 190 + r };
+
+    // Survivor markers:
+    // (14,3) -> after S (+1 row) becomes (15,3) -> after W (-1 col) becomes (15,2) [Ring 1: cleared by Resonance]
+    b[14][3] = { kind: 'T', id: 901 };
+    // (3,5) -> after 2 N (-2 row) becomes (1,5) -> after W (-1 col) becomes (1,4) [Ring 2: expands to (0,4)]
+    b[3][5] = { kind: 'S', id: 902 };
+
+    const engine = new GameEngine({
+      difficulty: 'easy',
+      initialBoard: b,
+      scriptedPieces: ['M1', 'M1', 'M1', 'I', 'I', 'M1'],
+    });
+
+    engine.tick(INTRO_DURATION_MS);
+
+    // 1. North clear -> lights north only
+    launchPastQuick(engine, 'N');
+    expect(engine.getState().resonanceSides).toEqual({
+      north: true,
+      south: false,
+      west: false,
+      east: false,
+    });
+    expect(engine.getState().ringsCleared).toBe(0);
+
+    // 2. Repeat North clear -> stays { north: true }, still no resonance
+    launchPastQuick(engine, 'N');
+    expect(engine.getState().resonanceSides).toEqual({
+      north: true,
+      south: false,
+      west: false,
+      east: false,
+    });
+    expect(engine.getState().ringsCleared).toBe(0);
+
+    // 3. South clear -> lights south (N + S lit)
+    launchPastQuick(engine, 'S');
+    expect(engine.getState().resonanceSides).toEqual({
+      north: true,
+      south: true,
+      west: false,
+      east: false,
+    });
+    expect(engine.getState().ringsCleared).toBe(0);
+
+    // 4. East clear -> lights east (N + S + E lit, still waiting for West)
+    launchPastQuick(engine, 'E', 1);
+    expect(engine.getState().resonanceSides).toEqual({
+      north: true,
+      south: true,
+      west: false,
+      east: true,
+    });
+    expect(engine.getState().ringsCleared).toBe(0);
+    expect(engine.getState().charge).toBe(40);
+    engine.drainEvents();
+
+    // 5. West clear (4th side!) -> triggers Ring 1 Resonance!
+    launchPastQuick(engine, 'W', 1);
+
+    const events = engine.drainEvents();
+    const resEvent = events.find((e) => e.type === 'RINGS_CLEARED');
+    expect(resEvent).toBeDefined();
+    if (resEvent && resEvent.type === 'RINGS_CLEARED') {
+      expect(resEvent.source).toBe('resonance');
+      expect(resEvent.rings).toEqual([1]);
+      expect(resEvent.isAllClear).toBe(false);
+      expect(resEvent.chargeDelta).toBe(RING_RESONANCE_CHARGE);
+      const expectedScore = Math.round(
+        Math.round(RING_CLEAR_BASE_SCORES[1] * OUTER_RING_BONUS_MULTIPLIER * 1) *
+          FLOW_MULTIPLIERS[resEvent.flowCombo],
+      );
+      expect(resEvent.scoreDelta).toBe(expectedScore);
+      expect(resEvent.clearedCells.some((c) => c.pos.r === 15 && c.pos.c === 2 && c.cell.id === 901)).toBe(
+        true,
+      );
+    }
+
+    const snap = engine.getState();
+    expect(snap.ringsCleared).toBe(1);
+    expect(snap.charge).toBe(40 + 10 + RING_RESONANCE_CHARGE);
+    expect(snap.resonanceSides).toEqual({
+      north: false,
+      south: false,
+      west: false,
+      east: false,
+    });
+    // Ring 2 survivor moved to Ring 1 (0,4)
+    expect(snap.board[1][4]).toBeNull();
+    expect(snap.board[0][4]?.id).toBe(902);
+    // Ring 1 survivor (15,2) was cleared
+    expect(snap.board[15][2]).toBeNull();
+  });
+
+  it('lights multiple resonance edges simultaneously on Cross Clear', () => {
+    const b = createEmptyBoard();
+    for (let c = 0; c < 15; c++) {
+      b[0][c] = { kind: 'O', id: 200 + c };
+    }
+    for (let r = 1; r < 16; r++) {
+      b[r][15] = { kind: 'O', id: 250 + r };
+    }
+
+    const engine = new GameEngine({
+      difficulty: 'easy',
+      initialBoard: b,
+      scriptedPieces: ['M1', 'M1'],
+    });
+
+    engine.tick(INTRO_DURATION_MS);
+    launchPastQuick(engine, 'NE');
+
+    const events = engine.drainEvents();
+    const lineEv = events.find((e) => e.type === 'LINES_CLEARED');
+    expect(lineEv).toMatchObject({ type: 'LINES_CLEARED', isCrossClear: true });
+    expect(engine.getState().resonanceSides).toEqual({
+      north: true,
+      south: false,
+      west: false,
+      east: true,
+    });
+  });
+
+  it('does not double-award All Clear when the 4th-side line clear empties the board', () => {
+    const b = createEmptyBoard();
+    for (let c = 0; c < 16; c++) {
+      if (c !== 7) b[0][c] = { kind: 'O', id: 300 + c };
+      if (c !== 8) b[15][c] = { kind: 'O', id: 320 + c };
+    }
+    // 1 N + 1 S clears leave r=6..9 empty on col 15 and col 0 for vertical 'I'
+    for (let r = 1; r <= 6; r++) b[r][15] = { kind: 'J', id: 340 + r };
+    for (let r = 9; r <= 14; r++) b[r][15] = { kind: 'J', id: 350 + r };
+    for (let r = 1; r <= 6; r++) b[r][0] = { kind: 'L', id: 360 + r };
+    for (let r = 9; r <= 14; r++) b[r][0] = { kind: 'L', id: 370 + r };
+
+    const engine = new GameEngine({
+      difficulty: 'easy',
+      initialBoard: b,
+      scriptedPieces: ['M1', 'M1', 'I', 'I', 'M1'],
+    });
+    engine.tick(INTRO_DURATION_MS);
+
+    launchPastQuick(engine, 'N');
+    launchPastQuick(engine, 'S');
+    launchPastQuick(engine, 'E', 1);
+    engine.drainEvents();
+
+    launchPastQuick(engine, 'W', 1);
+
+    const events = engine.drainEvents();
+    const lineEv = events.find((e) => e.type === 'LINES_CLEARED');
+    const resEv = events.find((e) => e.type === 'RINGS_CLEARED');
+
+    expect(lineEv).toMatchObject({ type: 'LINES_CLEARED', isAllClear: true });
+    expect(resEv).toBeDefined();
+    if (resEv && resEv.type === 'RINGS_CLEARED') {
+      expect(resEv.source).toBe('resonance');
+      expect(resEv.clearedCells).toHaveLength(0);
+      expect(resEv.isAllClear).toBe(false);
+    }
+  });
+
+  it('rescues a protruding center block via Resonance outward expansion before Game Over check', () => {
+    const b = createEmptyBoard();
+    // S (row 15 except (15,8)) -> E (col 15 via D2[1] at (7..8,15)) -> W (col 0 via D2[1] at (7..8,0))
+    for (let c = 0; c < 16; c++) {
+      if (c !== 8) {
+        b[15][c] = { kind: 'O', id: 440 + c };
+      }
+    }
+    for (let r = 0; r <= 6; r++) {
+      b[r][15] = { kind: 'J', id: 400 + r };
+      b[r][0] = { kind: 'L', id: 420 + r };
+    }
+    for (let r = 8; r <= 14; r++) {
+      b[r][15] = { kind: 'J', id: 410 + r };
+      b[r][0] = { kind: 'L', id: 430 + r };
+    }
+    // Row 5 (North 4th-side line): after E & W, missing (5,6), (5,7), (5,8), (5,9)
+    for (let c = 0; c < 16; c++) {
+      if (c !== 7 && c !== 8) {
+        b[5][c] = { kind: 'S', id: 460 + c };
+      }
+    }
+    // Stoppers for Turn 4..6 setup along row 5:
+    // b[3][8] -> after E becomes (3,9), stops horizontal D2 at (4,8),(4,9)
+    b[3][8] = { kind: 'T', id: 490 };
+    // b[4][7] -> after W becomes (4,6), stops L[3] at (5,6),(5,7),(6,7),(7,7)
+    b[4][7] = { kind: 'T', id: 491 };
+
+    const engine = new GameEngine({
+      difficulty: 'easy',
+      initialBoard: b,
+      scriptedPieces: ['M1', 'D2', 'D2', 'D2', 'D2', 'L', 'M1'],
+    });
+    engine.tick(INTRO_DURATION_MS);
+
+    // 1. S clear -> row 15 cleared (1/4)
+    launchPastQuick(engine, 'S');
+    // 2. E clear -> col 15 cleared (2/4) via vertical D2[1]
+    launchPastQuick(engine, 'E', 1);
+    // 3. W clear -> col 0 cleared (3/4) via vertical D2[1]
+    launchPastQuick(engine, 'W', 1);
+
+    // 4. D2 N + nudge E to cols 8..9 -> docks at (4,8),(4,9)
+    engine.tick(600);
+    engine.setAimDirection('N');
+    engine.launchOrHardDrop();
+    engine.nudge('E');
+    engine.launchOrHardDrop();
+
+    // 5. D2 N + nudge E to cols 8..9 -> fills (5,8),(5,9)
+    engine.tick(600);
+    engine.setAimDirection('N');
+    engine.launchOrHardDrop();
+    engine.nudge('E');
+    engine.launchOrHardDrop();
+
+    // 6. L rotated CCW (L[3]) N -> lands at (5,6),(5,7),(6,7),(7,7)
+    // northRows=[5] clears row 5 and pulls (7,7) to (6,7) [still in center!],
+    // then 4-Side Resonance expands (6,7) outward to (5,7) [safe!].
+    launchPastQuick(engine, 'N', -1);
+
+    const snap = engine.getState();
+    expect(snap.phase).toBe('HOVER');
+    expect(snap.board[6][7]).toBeNull();
+    expect(snap.board[5][7]).not.toBeNull();
+    expect(snap.ringsCleared).toBe(1);
+    expect(snap.resonanceSides).toEqual({
+      north: false,
+      south: false,
+      west: false,
+      east: false,
+    });
+  });
+
+  it('initializes resonanceSides to all false on a new GameEngine', () => {
+    const engine = new GameEngine({ difficulty: 'easy' });
+    expect(engine.getState().resonanceSides).toEqual({
+      north: false,
+      south: false,
+      west: false,
+      east: false,
+    });
   });
 });

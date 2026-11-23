@@ -35,6 +35,7 @@ import {
   QUICK_STREAK_STEP,
   RING_CLEAR_BASE_SCORES,
   RING_CLEAR_CHARGE,
+  RING_RESONANCE_CHARGE,
   SOFT_DROP_MULTIPLIER,
 } from './constants';
 import { getSpawnOrigin, isSingleCell, tryRotatePiece } from './pieces';
@@ -50,6 +51,7 @@ import type {
   GameStateSnapshot,
   GhostPlacement,
   PieceKind,
+  ResonanceSides,
   StarCoreKind,
 } from './types';
 
@@ -93,6 +95,12 @@ export class GameEngine {
   private quickStreak = 0;
   private totalLaunches = 0;
   private inDanger = false;
+  private resonanceSides: ResonanceSides = {
+    north: false,
+    south: false,
+    west: false,
+    east: false,
+  };
 
   private introElapsedMs = 0;
   private hoverElapsedMs = 0;
@@ -168,6 +176,7 @@ export class GameEngine {
       lockDelayElapsedMs: this.lockDelayElapsedMs,
       lockDelayDurationMs: LOCK_DELAY_MS,
       softDropActive: this.softDropActive,
+      resonanceSides: { ...this.resonanceSides },
     };
   }
 
@@ -631,6 +640,7 @@ export class GameEngine {
       this.emit({
         type: 'RINGS_CLEARED',
         rings: fullRings,
+        source: 'direct',
         clearedCells: clearResult.clearedCells,
         movements: clearResult.movements,
         isAllClear: clearResult.isAllClear,
@@ -697,6 +707,57 @@ export class GameEngine {
         newLevel,
         leveledUp,
       });
+
+      if (fullLines.northRows.length > 0) this.resonanceSides.north = true;
+      if (fullLines.southRows.length > 0) this.resonanceSides.south = true;
+      if (fullLines.westCols.length > 0) this.resonanceSides.west = true;
+      if (fullLines.eastCols.length > 0) this.resonanceSides.east = true;
+
+      if (
+        this.resonanceSides.north &&
+        this.resonanceSides.south &&
+        this.resonanceSides.west &&
+        this.resonanceSides.east
+      ) {
+        this.resonanceSides = { north: false, south: false, west: false, east: false };
+        const resClear = clearRingsAndExpand(this.board, [1]);
+        this.board = resClear.nextBoard;
+        const resonanceAllClear = resClear.clearedCells.length > 0 && resClear.isAllClear;
+
+        const resScoringLevel = this.level;
+        const resBase = Math.round(
+          RING_CLEAR_BASE_SCORES[1] * OUTER_RING_BONUS_MULTIPLIER * resScoringLevel,
+        );
+        const resAllClearBonus = resonanceAllClear ? ALL_CLEAR_BONUS_BASE * resScoringLevel : 0;
+        const resFlowMultiplier = FLOW_MULTIPLIERS[this.flowCombo];
+        const resScoreDelta = Math.round((resBase + resAllClearBonus) * resFlowMultiplier);
+        this.score += resScoreDelta;
+
+        const resRawCharge = RING_RESONANCE_CHARGE + (resonanceAllClear ? ALL_CLEAR_CHARGE : 0);
+        const resPrevCharge = this.charge;
+        this.charge = Math.min(100, this.charge + resRawCharge);
+        const resChargeDelta = this.charge - resPrevCharge;
+
+        this.ringsCleared += 1;
+        const resNewLevel = calculateLevelFromClears(this.linesCleared, this.ringsCleared);
+        const resLeveledUp = resNewLevel > this.level;
+        this.level = resNewLevel;
+
+        this.emit({
+          type: 'RINGS_CLEARED',
+          rings: [1],
+          source: 'resonance',
+          clearedCells: resClear.clearedCells,
+          movements: resClear.movements,
+          isAllClear: resonanceAllClear,
+          scoreDelta: resScoreDelta,
+          chargeDelta: resChargeDelta,
+          flowCombo: this.flowCombo,
+          flowMultiplier: resFlowMultiplier,
+          newLevel: resNewLevel,
+          leveledUp: resLeveledUp,
+        });
+      }
     }
 
     if (fullRings.length === 0 && lineCount === 0 && this.piecesSinceLastClear > FLOW_WINDOW_PIECES) {

@@ -59,6 +59,8 @@ export const RING_CLEAR_CHARGE: Record<1 | 2 | 3 | 4, number> = {
   4: 100,
 };
 
+export const RING_RESONANCE_CHARGE = 35;
+
 export const LINE_CLEAR_BASE_SCORES: Record<1 | 2 | 3 | 4, number> = {
   1: 200,
   2: 500,

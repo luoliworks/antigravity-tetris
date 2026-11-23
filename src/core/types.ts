@@ -83,6 +83,13 @@ export interface FullLines {
   eastCols: number[];
 }
 
+export interface ResonanceSides {
+  north: boolean;
+  south: boolean;
+  west: boolean;
+  east: boolean;
+}
+
 export interface GhostPlacement {
   finalPiece: ActivePiece;
   path: GridPos[];
@@ -127,6 +134,7 @@ export type GameEvent =
   | {
       type: 'RINGS_CLEARED';
       rings: RingIndex[];
+      source?: 'direct' | 'resonance';
       clearedCells: ClearedCell[];
       movements: CellMovement[];
       isAllClear: boolean;
@@ -205,4 +213,5 @@ export interface GameStateSnapshot {
   lockDelayElapsedMs: number;
   lockDelayDurationMs: number;
   softDropActive: boolean;
+  resonanceSides: ResonanceSides;
 }

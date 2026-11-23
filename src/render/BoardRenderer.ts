@@ -7,6 +7,7 @@ import {
   findNearFullLineGaps,
   getBestRingProgress,
   getPieceCells,
+  getRingCells,
   getRingIndex,
   inBounds,
   isInCenter,
@@ -452,6 +453,34 @@ export class BoardRenderer {
     }
   }
 
+  triggerResonanceSweep(): void {
+    const ring1Cells = getRingCells(1);
+    ring1Cells.forEach((pos, idx) => {
+      this.sweepWaves.push({
+        pos: { ...pos },
+        delayMs: idx * 8,
+        elapsedMs: 0,
+        durationMs: 280,
+        color: PRISM_SWEEP_COLORS[idx % PRISM_SWEEP_COLORS.length],
+      });
+    });
+
+    const waveColors = [0x38bdf8, 0xf0abfc, 0xfacc15];
+    waveColors.forEach((col, i) => {
+      this.shockwaves.push({
+        cx: BOARD_CENTER_X,
+        cy: BOARD_CENTER_Y,
+        delayMs: i * 65,
+        elapsedMs: 0,
+        durationMs: 480,
+        maxRadius: BOARD_PIXEL_SIZE * 0.72,
+        color: col,
+      });
+    });
+
+    this.overdriveRemainingMs = Math.max(this.overdriveRemainingMs, 750);
+  }
+
   triggerPiercerImpact(from: GridPos, to: GridPos): void {
     this.piercerBeams.push({
       from: { ...from },
@@ -650,6 +679,9 @@ export class BoardRenderer {
         10,
       );
     }
+
+    // 1b. 4-Side Ring Resonance border segments (N / S / W / E)
+    this.renderResonanceBorders(state);
 
     // 2. Advance shift & landing bounce animations & render settled board blocks
     for (const [id, shift] of this.activeShifts.entries()) {
@@ -1020,6 +1052,46 @@ export class BoardRenderer {
       this.boardGraphics.fillRoundedRect(x + 5, y + 5, CELL_SIZE - 10, CELL_SIZE - 10, 8);
       this.boardGraphics.lineStyle(2.5, style.edge, 0.72);
       this.boardGraphics.strokeRoundedRect(x + 5, y + 5, CELL_SIZE - 10, CELL_SIZE - 10, 8);
+    }
+  }
+
+  private renderResonanceBorders(state: GameStateSnapshot): void {
+    const sides = state.resonanceSides;
+    const litCount = [sides.north, sides.south, sides.west, sides.east].filter(Boolean).length;
+    const almostReady = litCount === 3;
+    const pulse = 0.5 + 0.5 * Math.sin(this.dangerPulseMs * 0.009);
+
+    const pad = 7;
+    const gap = 16;
+    const x0 = BOARD_X - pad;
+    const x1 = BOARD_X + BOARD_PIXEL_SIZE + pad;
+    const y0 = BOARD_Y - pad;
+    const y1 = BOARD_Y + BOARD_PIXEL_SIZE + pad;
+
+    const segments: { lit: boolean; ax: number; ay: number; bx: number; by: number }[] = [
+      { lit: sides.north, ax: BOARD_X + gap, ay: y0, bx: BOARD_X + BOARD_PIXEL_SIZE - gap, by: y0 },
+      { lit: sides.south, ax: BOARD_X + gap, ay: y1, bx: BOARD_X + BOARD_PIXEL_SIZE - gap, by: y1 },
+      { lit: sides.west, ax: x0, ay: BOARD_Y + gap, bx: x0, by: BOARD_Y + BOARD_PIXEL_SIZE - gap },
+      { lit: sides.east, ax: x1, ay: BOARD_Y + gap, bx: x1, by: BOARD_Y + BOARD_PIXEL_SIZE - gap },
+    ];
+
+    for (const seg of segments) {
+      if (seg.lit) {
+        const haloColor = almostReady ? 0xfacc15 : 0xe879f9;
+        const coreColor = almostReady ? 0xfef08a : 0x38bdf8;
+        const haloAlpha = almostReady ? 0.24 + 0.14 * pulse : 0.22;
+        this.centerBorderGraphics.lineStyle(10, haloColor, haloAlpha);
+        this.centerBorderGraphics.lineBetween(seg.ax, seg.ay, seg.bx, seg.by);
+        this.centerBorderGraphics.lineStyle(4.5, coreColor, 0.95);
+        this.centerBorderGraphics.lineBetween(seg.ax, seg.ay, seg.bx, seg.by);
+      } else {
+        this.centerBorderGraphics.lineStyle(3, 0x334155, 0.38);
+        this.centerBorderGraphics.lineBetween(seg.ax, seg.ay, seg.bx, seg.by);
+        if (almostReady) {
+          this.centerBorderGraphics.lineStyle(4, 0xfacc15, 0.25 + 0.35 * pulse);
+          this.centerBorderGraphics.lineBetween(seg.ax, seg.ay, seg.bx, seg.by);
+        }
+      }
     }
   }
 

@@ -537,10 +537,14 @@ export class GameScene extends Phaser.Scene {
           this.aiChanController.notifyClear();
           hasRingClear = true;
           if (ev.isAllClear) hasAllClear = true;
-          if (ev.rings.length >= 2) hasMultiClear = true;
+          const isResonance = ev.source === 'resonance';
+          if (isResonance || ev.rings.length >= 2) hasMultiClear = true;
 
-          const isMulti = ev.rings.length >= 2 || ev.isAllClear;
+          const isMulti = isResonance || ev.rings.length >= 2 || ev.isAllClear;
           this.boardRenderer.triggerPrismClear(ev.clearedCells, true, isMulti, ev.isAllClear);
+          if (isResonance) {
+            this.boardRenderer.triggerResonanceSweep();
+          }
           this.boardRenderer.triggerCellMovements(ev.movements);
           this.boardRenderer.triggerShake(isMulti ? 6 : 2, isMulti ? 240 : 120);
           this.triggerHitstop(isMulti ? 105 : 50);
@@ -552,6 +556,8 @@ export class GameScene extends Phaser.Scene {
 
           if (ev.isAllClear) {
             this.boardRenderer.showCallout(t('callout.allClear'), '#fef08a');
+          } else if (isResonance) {
+            this.boardRenderer.showCallout(t('callout.ringResonance'), '#f0abfc', -56);
           } else {
             const labelKeys: Record<number, string> = {
               1: t('callout.singleRing'),
